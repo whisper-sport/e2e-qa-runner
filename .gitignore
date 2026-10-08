@@ -1,0 +1,9 @@
+node_modules/
+.env
+.env.*
+!.env.example
+.DS_Store
+.ai/runs/
+.ai/qa/logs/
+.ai/qa/artifacts_*/
+.worktrees/
