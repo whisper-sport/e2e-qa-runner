@@ -25,7 +25,8 @@ Agenci potrafią dziś dowieźć implementację i otworzyć PR, ale ktoś musi j
 | Etap | Stan |
 |---|---|
 | Eksperyment: czy scenariusze z kryteriów akceptacji łapią realne defekty | ✅ 1/3 → hybryda |
-| Spec #1: manifest środowiska multi-repo z kontraktem seeda i kont QA | ⏳ następny ([brief](docs/specs/briefs/2026-10-08-manifest-srodowiska.md)) |
+| Spec #1a: manifest środowiska multi-repo z kontraktem seeda i kont QA | ⏳ w review ([spec](docs/specs/2026-10-08-manifest-srodowiska-multi-repo.md), [brief](docs/specs/briefs/2026-10-08-manifest-srodowiska.md)) |
+| Spec #1b: styk środowiska z istniejącym wykonawcą QA | — ([brief](docs/specs/briefs/2026-10-09-styk-z-wykonawca-qa.md)) |
 | Spec #2: generator scenariuszy (hybryda, tryb kontrprzykładów) | — |
 | Spec #3: raport z kontraktem dowodu, następnie naprawa | — |
 | Spec #4: UI historii runów | — |
