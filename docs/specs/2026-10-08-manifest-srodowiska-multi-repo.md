@@ -1,8 +1,8 @@
-# Spec #1a: manifest środowiska multi-repo z kontraktem seeda i kont QA
+# Spec #1a: manifest środowiska multi-repo z kontraktem seeda i kont QA (container-first)
 
-- Status: **projekt; bramka Open Questions zamknięta (2026-10-09)**
+- Status: **projekt; przebudowa container-first (2026-10-09); otwarte pytania Q11–Q13 z przeglądu przebudowy**
 - Brief: [`docs/specs/briefs/2026-10-08-manifest-srodowiska.md`](briefs/2026-10-08-manifest-srodowiska.md)
-- Następny spec (#1b, styk z wykonawcą QA): [`docs/specs/briefs/2026-10-09-styk-z-wykonawca-qa.md`](briefs/2026-10-09-styk-z-wykonawca-qa.md)
+- Następny spec (#1b, kontrakt scenariusza i styk z wykonawcą QA): [`docs/specs/briefs/2026-10-09-styk-z-wykonawca-qa.md`](briefs/2026-10-09-styk-z-wykonawca-qa.md)
 - Wejście z eksperymentu: [`docs/research/2026-10-08-scenariusze-z-ac-probe.md`](../research/2026-10-08-scenariusze-z-ac-probe.md), sekcja „Problemy środowiska”
 - Wszystkie przykłady dotyczą fikcyjnego konsumenta **acme** (`api`, `web`, `mobile-web`, `ml-service`).
 
@@ -11,28 +11,49 @@
 Zespół, którego zmiany wytwarzają agenci, nie ma dziś kim i czym przejść zmiany end-to-end. Po runie agenta nikt nie stawia całego ekosystemu z kilku repozytoriów, a ręczne skrypty środowiska są zaszyte pod jedną funkcję. **Proponujemy** CLI `e2e-qa` (Node/TypeScript, `npx`):
 
 - czyta manifest YAML konsumenta;
-- stawia lokalnie stos w zadanych refach repozytoriów (z własnego cache albo z istniejących checkoutów);
-- doprowadza dane do nazwanego stanu i przygotowuje konta QA;
+- stawia lokalnie stos, w którym **każda usługa jest kontenerem**: obraz z rejestru dla zadanego SHA albo zbudowany z repo (własny cache albo checkout operatora);
+- doprowadza dane do nazwanego stanu i przygotowuje konta QA poleceniami wykonywanymi w kontenerach;
 - opisuje gotowe środowisko w maszynowym `env.json`.
 
 Środowisko jest użyteczne samo w sobie, także dla ludzi. Przekazanie go wykonawcy QA to spec #1b. Generator scenariuszy, raport z kontraktem dowodu, pętla naprawy i UI to specy #2–#4.
 
-## 📝 Decyzje bramki
+## 📝 Decyzje
 
-| # | Pytanie | Decyzja (2026-10-09) |
+### Bramka Open Questions (2026-10-09)
+
+| # | Pytanie | Decyzja |
 |---|---|---|
-| Q1 | Podział speca | Dwa specy: **#1a** (ten) = manifest, seed i konta QA; **#1b** = styk z wykonawcą QA (brief obok) |
+| Q1 | Podział speca | Dwa specy: **#1a** (ten) = manifest, seed i konta QA; **#1b** = kontrakt scenariusza i styk z wykonawcą (brief obok) |
 | Q2 | Runtime | Node/TypeScript, dystrybucja przez `npx` |
 | Q3 | Format manifestu | YAML walidowany JSON Schema |
 | Q3b | Miejsce manifestu | Dowolne: narzędzie przyjmuje ścieżkę; konwencja leży poza rdzeniem |
-| Q4 | Styk z wykonawcą | **Dotyczy #1b; otwarte ponownie 2026-10-09** (scenariusz obejmuje kilka powierzchni, a deskryptor v1 ma jeden `baseUrl`). #1a dostarcza dane przez `env.json` z wieloma `targets` |
+| Q4 | Styk z wykonawcą | **Dotyczy #1b; otwarte ponownie** (scenariusz obejmuje kilka powierzchni). #1a dostarcza dane przez `env.json` z wieloma `targets` |
 | Q5 | Wejście runu | Rdzeń: refy `repo → ref` (narzędzie nie zna trackera). Nakładka: PR rozwiązywany do refu |
 | Q5b | Paczka PR-ów | Gotowy ref: gałąź integracyjną dostarcza operator lub orkiestrator; narzędzie nie scala |
 | Q6 | Warianty stosu | Kontrakt teraz (schemat przewiduje warianty), implementacja kilku wariantów później |
 | Q7 | Stany seeda | Słownik zalecany: standardowe nazwy z gwarancjami plus dowolne stany własne |
-| Q8 | Sesja kont QA | Tryb per konto: logowanie przez UI (referencje poświadczeń) albo hook sesji konsumenta |
+| Q8 | Sesja kont QA | Tryb i powierzchnia per persona: logowanie przez UI (referencje poświadczeń) albo hook sesji konsumenta |
 | Q9 | Budżet pamięci | Twarda bramka z jawną flagą obejścia |
 | Q10 | Kod repozytoriów | Ścieżka lokalna, gdy podana; inaczej własny cache z worktree per run |
+
+### Container-first (2026-10-09)
+
+| # | Decyzja |
+|---|---|
+| C1 | Każda usługa to kontener. Tryb `runtime: host` wypada z v1 (zob. „Poza zakresem”). Znikają supervisor, procesy hosta, `prepare`, `requires` i pomiar RSS. Żywotność runu wynika z projektów compose i `state.json` |
+| C2 | Źródło obrazu usługi aplikacyjnej: `image` (szablon tagu, np. z SHA) **albo** `build` (Dockerfile z worktree z cache lub ze ścieżki lokalnej, łącznie z niezacommitowanymi zmianami). Domyślnie najpierw `image`, a gdy go brak, `build`. Pochodzenie i digest trafiają do `env.json`. Flaga wymusza jedno źródło |
+| C3 | Kontrakt „obrazu zdatnego do QA” dla konsumenta: konfiguracja w runtime, healthcheck, migracje w obrazie, hooki QA przez `exec`, nieaktywne poza trybem QA |
+| C4 | `files` to szablony montowane do kontenera z katalogu runu. Narzędzie niczego nie zapisuje do repozytoriów |
+| C5 | `mem_limit` jest egzekwowany; bramka liczy tylko kontenery |
+| C6 | Zdalny Docker (`DOCKER_HOST=ssh://…`) to rozszerzenie poza v1 |
+
+### ❓ Open Questions (po przeglądzie przebudowy, 2026-10-09)
+
+- **Q11. Sonda `health: { http }`.** Healthcheck compose wykonuje się w kontenerze, więc sonda HTTP wymaga `curl` albo `wget` w obrazie (obrazy distroless i część obrazów serwerów statycznych ich nie mają). Opcje: (a) wymóg w kontrakcie obrazu; (b) w manifeście tylko `command` (sonda HTTP jako polecenie konsumenta); (c) sonda z hosta, ale wtedy `up --wait` nie pilnuje zdrowia i kolejność `service_healthy` przestaje działać.
+- **Q12. Tryb `auto`, gdy rejestr odpowiada „denied”/401.** Część rejestrów odpowiada tak samo dla braku uprawnień i dla nieistniejącego obrazu prywatnego. Opcje: (a) zawsze `blocked: registry-auth`; (b) przejście do `build` z ostrzeżeniem; (c) `build`, gdy operator ma zapisane logowanie do tego rejestru, inaczej `blocked`.
+- **Q13. Platforma obrazu (np. obraz z CI tylko `linux/amd64`, host `arm64`).** Opcje: (a) kontrola platformy przy sprawdzaniu rejestru, a przy niezgodności `build` w trybie `auto`; (b) pull z emulacją i ostrzeżenie; (c) `blocked`.
+
+Do czasu odpowiedzi spec opisuje mechanizmy neutralnie wobec tych wyborów; dotknięte miejsca są oznaczone odwołaniem do pytania.
 
 ## 📝 Problem Statement
 
@@ -42,7 +63,7 @@ Uogólnione z eksperymentu i z briefu (szczegóły konsumenta zostają w jego re
 - Regresja paczki kilkunastu PR-ów na drugim stosie skończyła się OOM-em, kolizjami portów, limitami logowania i brakiem OTP w dev.
 - Seed woła `docker compose exec` na sztywno, fikstury trafiają w ograniczenia schematu, a feature flagi wymagają ręcznej edycji zagnieżdżonego JSON-a.
 - Logowanie ma pułapki UI i bramki po pierwszym logowaniu. Testujący (człowiek albo agent) traci czas i limit prób logowania na rekonesans.
-- Proxy frontendu wskazuje sztywny adres API.
+- Proxy frontendu wskazuje sztywny adres API, a bundlery frontendu wypiekają adresy przy budowaniu.
 - Strażnik ścieżek agenta blokuje wszystko poza katalogiem roboczym.
 
 Skutek: testowanie zmian agentów zależy od jednej osoby, a paczki wydań czekają.
@@ -51,36 +72,39 @@ Skutek: testowanie zmian agentów zależy od jednej osoby, a paczki wydań czeka
 
 Wejścia i wyjście:
 
-- **Manifest** (konsument): stała topologia: repozytoria, usługi, zależności, hooki, stany seeda, przełączniki, konta i logowanie, dostęp do danych.
-- **Plik runu** (operator albo orkiestrator): część zmienna: refy lub ścieżki lokalne, stan danych, wartości przełączników.
-- **Konfiguracja operatora** (opcjonalna, w katalogu roboczym): kolejka, budżety, domyślne ścieżki.
-- **Wyjście:** działający stos, `env.json` (maszynowy opis środowiska) i `e2e-qa status` dla człowieka.
+- **Manifest** (konsument): stała topologia: repozytoria, usługi z obrazami, zależności, migracje, hooki QA, stany seeda, przełączniki, konta i logowanie, dostęp do danych.
+- **Plik runu** (operator albo orkiestrator): część zmienna: refy lub ścieżki lokalne, stan danych, wartości przełączników, opcjonalne wymuszenie źródła obrazów.
+- **Konfiguracja operatora** (opcjonalna, w katalogu roboczym): kolejka, budżet, retencja.
+- **Wyjście:** działający stos kontenerów, `env.json` (maszynowy opis środowiska) i `e2e-qa status` dla człowieka.
 
 Przebieg `e2e-qa up run.yaml`:
 
 1. Wczytanie manifestu ze ścieżki z runu i walidacja (schemat + reguły semantyczne).
-2. Preflight: Docker działa, wymagane narzędzia hosta są dostępne, stan i przełączniki z runu są zdefiniowane.
-3. Przygotowanie kodu. Dla każdego repo: ścieżka lokalna albo fetch do cache (z blokadą per repo) i worktree na podany ref. PR-y z nakładki są wcześniej rozwiązywane do refów.
+2. Preflight: Docker i Compose v2 działają (oraz Buildx, gdy będzie budowanie), dostępny jest `git`, stan i przełączniki z runu są zdefiniowane.
+3. Przygotowanie kodu. Dla każdego repo: ścieżka lokalna (tylko odczyt) albo fetch do cache (z blokadą per repo) i worktree na podany ref. PR-y z nakładki są wcześniej rozwiązywane do refów.
 4. Kolejka „jeden run naraz”, potem twarda bramka pamięci.
-5. Przydział wszystkich portów i sekretów oraz render plików `files` (we wszystkich usługach, przed pierwszym `prepare`). Start supervisora runu. Potem start w kolejności grafu zależności. Przełączniki `env` i `jsonFile` są aplikowane przed startem usługi, której dotyczą. Dalej: kontenery, migracje, usługi hosta (dzieci supervisora, nie CLI), seed, przełączniki `command`, reset limitów logowania, sesje dla kont w trybie `session` i sondy zdrowia.
-6. Zapis `env/<variant>.json` i plików poświadczeń; wypisanie linii wyniku.
+5. Obrazy: dla każdej usługi aplikacyjnej rejestr albo budowanie (z cache budowania Dockera); zapis źródła i digestu.
+6. Przydział portów publikowanych, sekretów i render `files` do katalogu runu. Wygenerowanie pliku compose (etykiety runu, `mem_limit`, healthchecki, jednorazowe usługi migracji, montowania).
+7. `docker compose up --wait`: Compose sam pilnuje kolejności (`service_healthy`, `service_completed_successfully` dla migracji) i zdrowia.
+8. Hooki QA przez `exec`: seed, przełączniki `command`, reset limitów logowania, sesje dla person w trybie `session`.
+9. Zapis `env/<variant>.json` i plików poświadczeń; wypisanie linii wyniku.
 
-`e2e-qa down` sprząta tylko to, co ten run postawił.
+`e2e-qa down` sprząta tylko projekty compose tego runu (po etykietach) i jego katalogi.
 
-**Odrzucone alternatywy.** Z briefu: workflow w orkiestratorze lub same skille, „nic nie budować”, serwer/PaaS na start, własny wykonawca przeglądarkowy. Z bramki: jeden spec dla środowiska i wykonawcy, scalanie paczek przez narzędzie (to odpowiedzialność orkiestratora, a scalanie lokalne różniłoby się od realnego), zamknięty słownik stanów (blokowałby konsumenta), wyłącznie logowanie przez UI.
+**Odrzucone alternatywy.** Z briefu: workflow w orkiestratorze lub same skille, „nic nie budować”, serwer/PaaS na start, własny wykonawca przeglądarkowy. Z bramki: jeden spec dla środowiska i wykonawcy, scalanie paczek przez narzędzie, zamknięty słownik stanów, wyłącznie logowanie przez UI. Z decyzji container-first: **tryb hybrydowy (usługi aplikacyjne na hoście).** Dawał szybki start bez obrazów, ale wymagał supervisora, grup procesów, `prepare` na cudzych checkoutach, zapisu plików do repozytoriów operatora i bramki pamięci opartej na deklaracjach. Kontenery dają izolację, egzekwowane limity i jedną ścieżkę na serwer. Kosztem jest wymóg obrazu zdatnego do QA po stronie konsumenta.
 
-## 📝 Research: czego uczą liderzy
+## 📝 Research: container-first u liderów
 
 | Narzędzie | Co robią dobrze | Co bierzemy | Czego nie bierzemy |
 |---|---|---|---|
-| Garden | Graf akcji (build/deploy/run/test) z cache po hashu wersji | Graf zależności z hookami `prepare`/`migrate`/`seed` jako węzłami | Kubernetes, zdalne klastry, cache wersji (później) |
-| Tilt | `local_resource` obok `docker_compose` w jednym grafie | Tryb hybrydowy: usługa `host` lub `container` w jednym manifeście | Live update, dashboard |
-| Testcontainers | Losowe porty, strategie oczekiwania na gotowość | Porty zawsze przydzielane, sondy `http`/`tcp`/`command` z limitem czasu | Cykl życia sterowany z kodu testów |
-| Docker Compose | `-p` izoluje projekty, `mem_limit`, `depends_on: condition: service_healthy` | Compose jako backend kontenerów (plik generowany per run) | Własny runtime kontenerów |
-| Seedery Rails/Laravel, `cy.task` w Cypress | Nazwane seedery wołane poleceniem aplikacji | Stan danych = polecenie konsumenta z nazwą stanu | Fikstury SQL pisane przez narzędzie |
-| Playwright `storageState` / `cy.session` | Logowanie raz, zapis sesji, reużycie | Tryb `session`: hook konsumenta zwraca sesję, narzędzie ją buforuje per run | Logowanie programowe w rdzeniu |
+| Docker Compose | `-p` izoluje projekty; `depends_on` z `service_healthy` i `service_completed_successfully`; `up --wait`; `mem_limit`; etykiety; `logs --timestamps` | Compose jako silnik: kolejność, zdrowie, migracje jako usługi jednorazowe, logi i sprzątanie po etykietach. Narzędzie generuje plik compose, a nie orkiestruje samo | `profiles`, `include`, `watch` (konsument nie pisze compose, tylko manifest) |
+| Dev Containers (`devcontainer.json`) | Usługa z `image` albo `build`; nazwane hooki cyklu życia (`postCreateCommand`, `postStartCommand`) wykonywane w kontenerze | Wybór `image`/`build` per usługa; hooki QA jako polecenia w kontenerze o stałych nazwach | Integracja z IDE, features, montowanie całego repo jako workspace |
+| Tilt | `docker_build` per usługa z cache, przebudowa tylko zmienionych obrazów | Budowanie z cache Dockera i `cache-from` obrazu z rejestru | Live update, dashboard, Kubernetes |
+| Testcontainers | Strategie oczekiwania, losowe porty, sprzątanie po etykietach (Ryuk) | Porty publikowane przydzielane per run, sprzątanie wyłącznie po etykiecie `e2e-qa.run` | Cykl życia sterowany z kodu testów |
+| Seedery Rails/Laravel, `cy.task` | Nazwane seedery wołane poleceniem aplikacji | Stan danych = polecenie w obrazie z nazwą stanu | Fikstury SQL pisane przez narzędzie |
+| Playwright `storageState` / `cy.session` | Logowanie raz, zapis sesji, reużycie | Tryb `session`: hook zwraca sesję, narzędzie ją buforuje | Logowanie programowe w rdzeniu |
 
-Wniosek: żaden z nich nie łączy **wielu repozytoriów w zadanych refach** z **semantycznym słownikiem stanów danych i person**. To jest wartość tego narzędzia. Orkiestrację kontenerów delegujemy do Compose, zamiast ją budować.
+Wniosek: kolejność startu, zdrowie, limity i logi daje Compose, a wybór obrazu albo budowania daje wzorzec Dev Containers. Wartością tego narzędzia zostaje: **wiele repozytoriów w zadanych refach → obrazy**, **semantyczny słownik stanów i person** oraz **kontrakt obrazu zdatnego do QA**.
 
 ## 📝 Architecture
 
@@ -93,37 +117,53 @@ flowchart LR
     n1["Plik runu"]:::newC
     n2["Manifest YAML (konsument)"]:::extC
     n3["e2e-qa CLI"]:::newC
-    n4["Cache repo / ścieżki lokalne"]:::newC
-    n5["Docker Compose"]:::extC
-    n6["Procesy hosta"]:::newC
-    n7["Hooki konsumenta (migrate, seed, otp, session, data)"]:::extC
-    n8["env.json"]:::newC
-    n9["#1b: styk z wykonawcą QA"]:::planC
+    n4["Cache repo / ścieżki lokalne (tylko odczyt)"]:::newC
+    n5["Rejestr obrazów"]:::extC
+    n6["docker build (cache)"]:::extC
+    n7["Wygenerowany compose + files"]:::newC
+    n8["Docker Compose: kontenery, migracje, zdrowie"]:::extC
+    n9["Hooki QA w obrazach (exec)"]:::extC
+    n10["env.json"]:::newC
+    n11["#1b: scenariusz i wykonawca"]:::planC
 
     n1 --> n3
     n2 --> n3
     n3 --> n4
-    n3 --> n5
-    n3 --> n6
+    n3 -->|"image"| n5
+    n4 -->|"build"| n6
     n3 --> n7
-    n3 --> n8
-    n8 -.-> n9
+    n7 --> n8
+    n3 -->|"exec"| n9
+    n3 --> n10
+    n10 -.-> n11
 ```
 
-Niebieskie elementy są nowe, szare już istnieją, a przerywana ramka to praca planowana. Rdzeń nie zna żadnego wykonawcy ani trackera. Jedynym punktem styku dla #1b jest `env.json`.
+Niebieskie elementy są nowe, szare już istnieją, a przerywana ramka to praca planowana. Narzędzie nie uruchamia żadnego procesu aplikacji na hoście. Rdzeń nie zna żadnego wykonawcy ani trackera. Jedynym punktem styku dla #1b jest `env.json`.
 
 | Moduł | Odpowiedzialność |
 |---|---|
 | `manifest` | Parsowanie YAML, JSON Schema (`schema/manifest.v1.json`, `schema/run.v1.json`), reguły semantyczne |
 | `repos` | Ścieżki lokalne (tylko odczyt) albo cache lustrzany, fetch i worktree; nakładka PR → ref |
-| `graph` | Graf usług i hooków, kolejność startu, wykrywanie cykli |
-| `ports` | Przydział portów, rozwiązywanie placeholderów w dwóch widokach (host, kontener) |
-| `runtime-container` | Generowanie pliku compose, `pull`/`up`/`down`/`exec`, logi |
-| `runtime-host` | `prepare`, start usług jako dzieci supervisora (każda we własnej grupie procesów) |
-| `supervisor` | Odłączony proces per run: rodzic usług hosta, pompa logów (usługi hosta i `docker compose logs -f`) z maskowaniem i znacznikami czasu, źródło prawdy o żywotności runu |
+| `images` | Rozwiązanie szablonu tagu, sprawdzenie rejestru, pull z limitem czasu, budowanie z cache, digest |
+| `compose` | Przydział portów, placeholdery, render `files`, generowanie pliku compose (etykiety, limity, healthchecki, migracje), `up --wait`, `down` |
 | `gate` | Kolejka i twarda bramka pamięci |
-| `state` | Słownik stanów, seed, persony, przełączniki, sesje, OTP, dostęp do danych |
-| `output` | `env.json`, pliki poświadczeń, `status`, maskowanie sekretów |
+| `state` | Słownik stanów, hooki QA przez `exec`, persony, przełączniki, sesje, OTP, dostęp do danych |
+| `output` | `env.json`, pliki poświadczeń, `status`, `logs` z maskowaniem |
+
+## 📝 Kontrakt obrazu zdatnego do QA (dla konsumenta)
+
+Narzędzie zakłada, że obraz każdej usługi aplikacyjnej spełnia pięć warunków. `validate` sprawdza te, które da się sprawdzić statycznie z manifestu. `images` i `up` sprawdzają obraz (`HEALTHCHECK`), a reszta wychodzi przy hookach jako czytelne błędy.
+
+1. **Konfiguracja w runtime.** Adresy innych usług, originy, flagi i sekrety obraz czyta przy starcie kontenera ze zmiennych środowiskowych albo z montowanych plików. Żaden adres nie jest zaszyty przy budowaniu.
+   - Frontend serwowany statycznie stosuje wzorzec **runtime config**: entrypoint kontenera generuje `env.js` albo `config.json` ze zmiennych, a aplikacja ładuje go przed startem. Alternatywnie narzędzie montuje gotowy `config.json` przez `files`.
+   - **Build-time env bundlerów łamie kontrakt.** Zmienne wypiekane przy budowaniu (np. `EXPO_PUBLIC_*`, `import.meta.env` w Vite, `process.env.*` zastępowane przez bundler) dają obraz przypięty do jednego adresu, więc nie da się go użyć z portami przydzielanymi per run. Takie repo wymaga przejścia na runtime config, zanim jego usługa wejdzie do manifestu.
+   - Z tego samego powodu `build.args` nie mogą zawierać placeholderów `${services.*}` ani `${secret.*}` (błąd walidacji).
+2. **Healthcheck.** Obraz ma `HEALTHCHECK` albo manifest podaje `health`. Brak obu wykrywa narzędzie po rozwiązaniu obrazu (`images`/`up`, przez `docker image inspect`) i zgłasza `error: no-healthcheck`, chyba że manifest jawnie deklaruje `health: { none: true }`. Wtedy gotowość = kontener działa, a narzędzie wypisuje ostrzeżenie. Wymagania wobec narzędzi w obrazie dla sondy HTTP: zob. Q11.
+3. **Migracje jako polecenie w obrazie.** `migrate.command` uruchamia się jako jednorazowa usługa z tego samego obrazu, przed startem usługi.
+4. **Hooki QA jako polecenia w obrazie**, wykonywane przez `docker compose exec -T` w działającym kontenerze usługi: `seed`, `login.otp`, `login.session`, `login.rateLimitReset`, przełączniki `command`, `dataAccess`. Hook działa w cgroup usługi, więc jego pamięć liczy się do `mem_limit` tej usługi. `memory` usługi z hookami musi mieć zapas na seed.
+5. **Hooki QA nieaktywne poza trybem QA.** Narzędzie ustawia w każdym kontenerze aplikacyjnym `E2E_QA_MODE=1`. Polecenia QA muszą odmawiać działania, gdy tej zmiennej nie ma, z **zarezerwowanym kodem wyjścia 78** (`EX_CONFIG`) i komunikatem na stderr. Dzięki temu narzędzie odróżnia „hook nieaktywny” (78) od „brak polecenia w obrazie” (126/127 zwrócone przez `exec`) i od zwykłego błędu hooka (każdy inny kod). Obraz produkcyjny może je więc zawierać bez ryzyka, a najlepiej w ogóle ich nie zawiera (osobny target `qa` w Dockerfile). To warunek bezpieczeństwa: polecenia tworzące konta, czytające OTP czy wydające sesje nie mogą być aktywne na produkcji.
+
+Opcjonalnie, dla szybszego budowania lokalnego: CI publikuje obrazy z inline cache (`BUILDKIT_INLINE_CACHE=1`), żeby `--cache-from` działało także przy domyślnym sterowniku `docker` w Buildx.
 
 ## 📝 Data Model
 
@@ -136,26 +176,28 @@ flowchart LR
     entity_1["Manifest"]:::newEntity
     entity_2["Repo"]:::newEntity
     entity_3["Service"]:::newEntity
-    entity_4["SeedState"]:::newEntity
-    entity_5["Persona"]:::newEntity
-    entity_6["Toggle"]:::newEntity
-    entity_7["RunFile"]:::newEntity
-    entity_8["Variant"]:::newEntity
-    entity_9["RunState (state.json)"]:::newEntity
-    entity_10["EnvDescription (env.json)"]:::newEntity
+    entity_4["ImageSource (image | build)"]:::newEntity
+    entity_5["SeedState"]:::newEntity
+    entity_6["Persona"]:::newEntity
+    entity_7["Toggle"]:::newEntity
+    entity_8["RunFile"]:::newEntity
+    entity_9["Variant"]:::newEntity
+    entity_10["RunState (state.json)"]:::newEntity
+    entity_11["EnvDescription (env.json)"]:::newEntity
 
     entity_1 -->|1-n| entity_2
     entity_1 -->|1-n| entity_3
-    entity_3 -->|n-1| entity_2
-    entity_1 -->|1-n| entity_4
+    entity_3 -->|1-1| entity_4
+    entity_4 -->|n-1| entity_2
     entity_1 -->|1-n| entity_5
-    entity_4 -->|n-n| entity_5
     entity_1 -->|1-n| entity_6
-    entity_7 -->|n-1| entity_1
-    entity_7 -->|1-n| entity_8
-    entity_7 -->|n-1| entity_4
-    entity_9 -->|1-1| entity_7
-    entity_9 -->|1-n| entity_10
+    entity_5 -->|n-n| entity_6
+    entity_1 -->|1-n| entity_7
+    entity_8 -->|n-1| entity_1
+    entity_8 -->|1-n| entity_9
+    entity_8 -->|n-1| entity_5
+    entity_10 -->|1-1| entity_8
+    entity_10 -->|1-n| entity_11
 ```
 
 ### Manifest (`version: 1`)
@@ -175,44 +217,37 @@ repos:
 
 resources:
   docker: { memory: 6g }   # budżet VM Dockera dla całego runu
-  host:   { memory: 8g }
 
 services:
   postgres:
-    runtime: container
     image: postgres:16
-    port: 5432                      # port wewnętrzny; zewnętrzny przydziela narzędzie
+    port: 5432                       # port w kontenerze; port publikowany przydziela narzędzie
     memory: 512m
     env: { POSTGRES_PASSWORD: "${secret.postgres}", POSTGRES_DB: acme }   # sekret jednorazowy, per run
     url: "postgres://postgres:${secret.postgres}@${self.host}:${self.port}/acme"
-    urls:                           # nazwane dialekty tej samej bazy (np. sterownik async i sync)
+    urls:                            # nazwane dialekty tej samej bazy (np. sterownik async i sync)
       async: "postgresql+asyncpg://postgres:${secret.postgres}@${self.host}:${self.port}/acme"
-    health: { command: pg_isready -U postgres }
+    health: { command: [pg_isready, -U, postgres] }
   redis:
-    runtime: container
     image: redis:7
     port: 6379
     memory: 128m
     url: "redis://${self.host}:${self.port}"
-    health: { command: redis-cli ping }
+    health: { command: [redis-cli, ping] }
+
   ml:
-    runtime: host
-    repo: ml
-    requires: [uv]
-    prepare: [uv sync]
-    start: uv run serve --host ${self.bind} --port ${self.port}
+    image: "registry.example.com/acme/ml-service:${repo.ml.sha}"   # obraz z CI, gdy istnieje
+    build: { repo: ml, dockerfile: Dockerfile, target: qa }        # w przeciwnym razie budowanie
+    port: 8000
     memory: 1g
-    env: { DATABASE_URL: "${services.postgres.urls.async}", MIGRATIONS_DATABASE_URL: "${services.postgres.url}", DB_SCHEMA: ml }
-    migrate: { run: uv run migrate }
+    env: { DATABASE_URL: "${services.postgres.urls.async}", DB_SCHEMA: ml }
+    migrate: { command: [uv, run, migrate], env: { DATABASE_URL: "${services.postgres.url}" } }
     dependsOn: [postgres]
     health: { http: /health }
   api:
-    runtime: host
-    repo: api
-    requires: [node>=20]
-    prepare: [npm ci, npm run build]
-    start: npm run start
-    port: { env: PORT }
+    image: "registry.example.com/acme/api:${repo.api.sha}"
+    build: { repo: api, dockerfile: Dockerfile, target: qa }
+    port: 3000
     memory: 700m
     env:
       DATABASE_URL: "${services.postgres.url}"
@@ -220,33 +255,32 @@ services:
       ML_URL: "${services.ml.url}"
       # odwołanie „w górę grafu”: web i mobile-web zależą od api, a api zna ich originy (CORS)
       CORS_ORIGINS: "${services.web.origins},${services.mobile-web.origins}"
-    migrate: { run: npm run db:migrate, timeout: 5m }
+    files:
+      - mountPath: /app/config/flags.json   # cel przełącznika billing-v2 (apply: file)
+        format: json
+        content: { "billing": { "v2": false } }
+    migrate: { command: [node, dist/migrate.js], timeout: 5m }
     dependsOn: [postgres, redis, ml]
     health: { http: /health }
   web:
-    runtime: host
-    repo: web
-    prepare: [npm ci]
-    start: npm run dev -- --port ${self.port} --proxy-config proxy.e2e.json
-    memory: 900m
-    files:                           # dev-serwer czyta adres API z pliku, nie ze zmiennej procesu
-      - path: proxy.e2e.json
-        format: json
-        content: { "/api": { "target": "${services.api.url}", "changeOrigin": true } }
+    image: "registry.example.com/acme/web:${repo.web.sha}"
+    build: { repo: web, dockerfile: Dockerfile }
+    port: 8080
+    memory: 256m
+    env: { ACME_API_URL: "${services.api.publicUrl}" }   # entrypoint generuje env.js (runtime config)
     dependsOn: [api]
     health: { http: / }
     target: web
     browser: { locale: pl-PL }
   mobile-web:
-    runtime: host
-    repo: mobile
-    prepare: [npm ci]
-    start: npm run web -- --port ${self.port}
-    memory: 900m
-    files:                           # bundler daje plikom .env* pierwszeństwo przed zmiennymi procesu
-      - path: .env.local
-        format: dotenv
-        content: { ACME_PUBLIC_API_URL: "${services.api.url}" }
+    image: "registry.example.com/acme/mobile-web:${repo.mobile.sha}"
+    build: { repo: mobile, dockerfile: Dockerfile.web }
+    port: 8080
+    memory: 256m
+    files:                           # gotowy runtime config montowany do kontenera
+      - mountPath: /usr/share/nginx/html/config.json
+        format: json
+        content: { "apiUrl": "${services.api.publicUrl}" }
     dependsOn: [api]
     health: { http: / }
     target: mobile-web               # web build aplikacji mobilnej ≠ native
@@ -261,8 +295,7 @@ personas:                            # każda persona użyta w stanach; tryb log
   auditor:           { login: ui }    # persona własna konsumenta
 
 seed:
-  run: { in: host, repo: api, command: "npm run qa:seed", timeout: 5m }
-  after: [api.migrate, ml.migrate]
+  run: { in: api, command: [node, dist/qa/seed.js], timeout: 5m }
   states:
     baseline: {}
     first-run: {}
@@ -281,10 +314,10 @@ toggles:
     apply: { env: { service: web, name: ACME_FF_NEW_DASHBOARD } }
   billing-v2:
     default: false
-    apply: { jsonFile: { repo: api, path: config/flags.json, pointer: /billing/v2 } }
+    apply: { file: { service: api, mountPath: /app/config/flags.json, pointer: /billing/v2 } }
   maintenance-banner:
     default: false
-    apply: { command: { run: { in: host, repo: api, command: "npm run qa:flag -- maintenance-banner ${toggle.value}" } } }
+    apply: { command: { in: api, command: [node, dist/qa/flag.js, maintenance-banner, "${toggle.value}"] } }
 
 login:
   surface: web                       # domyślna powierzchnia; persona może ją nadpisać
@@ -293,48 +326,66 @@ login:
       - Po wejściu na stronę logowania zamknij baner cookies; zasłania przycisk „Dalej”.
     mobile-web:
       - Identyfikatorem jest numer telefonu; po wpisaniu przewiń w dół, klawiatura zasłania przycisk.
-  otp: { run: { in: host, repo: api, command: "npm run qa:otp -- ${identity}" } }
-  session: { run: { in: host, repo: api, command: "npm run qa:session -- ${persona.username}" }, ttl: 30m }
-  rateLimitReset: { run: { in: host, repo: api, command: npm run qa:reset-login-limits } }
+  otp: { in: api, command: [node, dist/qa/otp.js, "${identity}"] }
+  session: { in: api, command: [node, dist/qa/session.js, "${persona.username}"], ttl: 30m }
+  rateLimitReset: { in: api, command: [node, dist/qa/reset-login-limits.js] }
 
 dataAccess:                          # wymaganie 9; przepis i gwarancja „tylko odczyt” należą do konsumenta
-  db:
-    run: { in: postgres, command: "psql -U qa_readonly -d acme -v ON_ERROR_STOP=1 -f -" }   # zapytanie na stdin
+  db: { in: postgres, command: [psql, -U, qa_readonly, -d, acme, -v, ON_ERROR_STOP=1, -f, "-"] }   # zapytanie na stdin
 
 # qa: klucz zarezerwowany dla speca #1b
 ```
 
 Reguły manifestu:
 
-- **Porty nigdy nie są stałe.** `port` to port wewnętrzny kontenera albo sposób przekazania portu usłudze hosta (`${self.port}` w poleceniu lub `port.env`). Zewnętrzny port zawsze przydziela narzędzie.
-- **Placeholdery** rozwiązują się w **widoku konsumenta**:
-  - lista: `${services.<n>.url|urls.<nazwa>|host|port|origins}`, `${self.host|port|bind}`, `${secret.<n>}`, `${run.id}`, `${variant.name}`, `${persona.username}`, `${identity}`, `${toggle.value}`;
-  - **placeholdery nie tworzą krawędzi grafu.** Krawędzie tworzą wyłącznie `dependsOn` i `seed.after`. Wszystkie porty i sekrety przydziela się przed startem pierwszej usługi, więc usługa może odwołać się do usługi, która od niej zależy (np. lista originów CORS w `api` zawiera URL-e frontendów zależnych od `api`). Cykl powstaje tylko w `dependsOn`;
-  - `${services.<n>.origins}` jest **zawsze w widoku przeglądarki**, niezależnie od widoku konsumenta. Daje oba originy usługi HTTP rozdzielone przecinkiem: `http://127.0.0.1:<port>,http://localhost:<port>`. Przeglądarka traktuje `127.0.0.1` i `localhost` jako różne originy. `env.json` publikuje URL-e w formie `127.0.0.1` i tej formy powinni używać testujący. Forma `localhost` jest na liście dla dev-serwerów i przekierowań, które same ją wybierają (uwaga: `localhost` może rozwiązać się do `::1`, a usługi hosta słuchają na IPv4). W pliku `format: json` wartość będąca w całości tym placeholderem renderuje się jako tablica JSON;
-  - wartości pochodzące z wejścia w czasie działania (`${identity}`, `${persona.username}`, `${toggle.value}`) nigdy nie są interpretowane przez powłokę:
-    - narzędzie wstawia je jako pojedynczy argument z cytowaniem dla ostatniej warstwy powłoki;
-    - dla `in: <usługa>` buduje tablicę argumentów `docker compose exec` bez pośredniej powłoki;
-    - wartości trafiają też do zmiennych `E2E_QA_IDENTITY`, `E2E_QA_PERSONA_USERNAME`, `E2E_QA_TOGGLE_VALUE`;
-    - walidacja odrzuca te placeholdery umieszczone wewnątrz cudzysłowów w szablonie polecenia, a narzędzie odrzuca wartość zaczynającą się od `-` (wstrzyknięcie opcji);
+- **Źródło obrazu.** Usługa infrastrukturalna ma tylko `image` (stały tag). Usługa aplikacyjna ma `image` (szablon tagu), `build` albo oba.
+  - Szablon tagu może używać `${repo.<r>.sha}` (pełne SHA), `${repo.<r>.shortSha}` i `${repo.<r>.ref}` (ref oczyszczony do znaków dozwolonych w tagu).
+  - `build` to `{ repo, context?, dockerfile?, target?, args? }`. `context` jest względny do katalogu repo (domyślnie `.`).
+  - Kolejność wyboru źródła, flagi wymuszania i reguły dla ścieżek lokalnych opisuje sekcja „Obrazy: wybór źródła i budowanie”.
+- **Porty nigdy nie są stałe.** `port` to port w kontenerze. Narzędzie publikuje go na `127.0.0.1:<port przydzielony per run>`. Kontenery rozmawiają ze sobą po nazwach usług w sieci projektu compose.
+- **Placeholdery** rozwiązują się w **widoku kontenera** (wszystkie usługi to kontenery):
+  - lista: `${services.<n>.url|urls.<nazwa>|host|port}` (sieć compose: `host` = nazwa usługi, `port` = port w kontenerze), `${services.<n>.publicUrl|publicPort|origins}` (widok przeglądarki: `127.0.0.1` i port publikowany), `${self.host|port}`, `${repo.<r>.sha|shortSha|ref}`, `${secret.<n>}`, `${run.id}`, `${variant.name}`, `${persona.username}`, `${identity}`, `${toggle.value}`;
+  - **`url` vs `publicUrl`.** Konfiguracja, którą czyta przeglądarka (runtime config frontendu), musi używać `publicUrl`. Konfiguracja, którą czyta kontener (API → baza), używa `url`. Walidacja ostrzega, gdy `env` lub `files` usługi z `target` odwołuje się do `url` zamiast `publicUrl`;
+  - **placeholdery nie tworzą krawędzi grafu.** Krawędzie tworzy wyłącznie `dependsOn`. Wszystkie porty publikowane i sekrety przydziela się przed `up`, więc usługa może odwołać się do usługi, która od niej zależy (np. originy CORS w `api`). Cykl powstaje tylko w `dependsOn`;
+  - `${services.<n>.origins}` jest zawsze w widoku przeglądarki: `http://127.0.0.1:<port>,http://localhost:<port>`. Przeglądarka traktuje obie formy jako różne originy. `env.json` publikuje URL-e w formie `127.0.0.1` i tej formy powinni używać testujący. W pliku `format: json` wartość będąca w całości tym placeholderem renderuje się jako tablica JSON;
   - `${secret.<n>}` w v1 jest zawsze **generowany** per run (losowy, jednorazowy). Pobieranie sekretów z zewnętrznych źródeł jest poza zakresem;
-  - usługa hosta dostaje `127.0.0.1:<port zewnętrzny>`;
-  - kontener dostaje nazwę usługi z sieci compose (gdy łączy się z innym kontenerem) albo `host.docker.internal:<port>` (gdy łączy się z usługą hosta). Generowany plik compose zawsze ustawia `extra_hosts: host.docker.internal:host-gateway`, więc działa to także na Linuksie i w CI;
-  - `${self.bind}` ma wartość `127.0.0.1`. Usługa hosta dostaje `0.0.0.0`, a narzędzie wypisuje ostrzeżenie, tylko gdy sięga do niej kontener: przez `dependsOn` **albo** przez placeholder w `env`, `files` lub poleceniu kontenera (dla bindu liczą się oba rodzaje odwołań, choć placeholdery nie tworzą krawędzi startu);
   - nierozwiązany placeholder to błąd walidacji, a nie pusty string.
-- **`url`** usługi to szablon (domyślnie `http://${self.host}:${self.port}`). Usługi bez protokołu HTTP muszą go podać. **`urls`** to opcjonalne nazwane warianty tego samego adresu, np. dialekty URL-a bazy dla sterownika async i sync. Każdy nazwany URL jest maskowany w `env.json` i dostaje własną referencję (`E2E_QA_SERVICE_<USŁUGA>_URL_<NAZWA>`, np. `E2E_QA_SERVICE_POSTGRES_URL_ASYNC`). Alternatywa, czyli składanie URL-a z `host`/`port` w `env` usługi, działa, ale omija maskowanie. Dlatego nazwane `urls` są zalecane.
-- **`files`** to pliki konfiguracyjne usługi renderowane z szablonu do katalogu repo usługi **po** checkoucie i **przed** `prepare`/`start`. Pozycja ma postać `{ path, format: dotenv | json | text, content | template }`. `content` to mapa (dla `dotenv`/`json`) albo tekst; `template` to ścieżka do pliku szablonu względem manifestu. Placeholdery rozwiązują się w widoku usługi. Plik zastępuje całą istniejącą treść. Przed zapisem narzędzie robi `realpath` ścieżki i odmawia zapisu, gdy wynik wychodzi poza katalog repo albo gdy ścieżka prowadzi przez symlink. `env` nie wystarcza z dwóch powodów:
-  - część bundlerów daje plikom `.env*` z repo pierwszeństwo przed zmiennymi procesu, więc aplikacja wstaje podpięta pod adres zapisany w repo, który może wskazywać zupełnie inne środowisko;
-  - dev-serwery frontendu czytają adres API z pliku proxy.
+- **`url`** usługi to szablon (domyślnie `http://${self.host}:${self.port}`). Usługi bez protokołu HTTP muszą go podać. **`urls`** to opcjonalne nazwane warianty tego samego adresu (np. dialekty sterownika async i sync). Każdy szablon ma dwa widoki: kontenera (`url`) i hosta (`publicUrl`, z `127.0.0.1` i portem publikowanym). URL z sekretem jest w `env.json` maskowany w obu widokach i dostaje dwie referencje: `urlEnv` (`E2E_QA_SERVICE_<USŁUGA>_URL[_<NAZWA>]`, widok kontenera) i `publicUrlEnv` (`E2E_QA_SERVICE_<USŁUGA>_PUBLIC_URL[_<NAZWA>]`, widok hosta).
+- **Polecenia są tablicami (exec form)**, nigdy stringiem interpretowanym przez powłokę. Dotyczy `migrate.command`, `health.command` i każdego hooka QA. Wartości z wejścia w czasie działania (`${identity}`, `${persona.username}`, `${toggle.value}`) muszą stanowić **cały** element tablicy. Narzędzie podstawia je jako jeden argument, odrzuca wartość zaczynającą się od `-` i przekazuje je też w zmiennych `E2E_QA_IDENTITY`, `E2E_QA_PERSONA_USERNAME`, `E2E_QA_TOGGLE_VALUE`. Konsument, który potrzebuje powłoki, wywołuje własny skrypt z obrazu.
+- **Hook QA** ma postać `{ in: <usługa>, command: [...], timeout? }` (domyślny `timeout` 10 min) i wykonuje się przez `docker compose -p <projekt> exec -T` (bez TTY, ze stdin) w działającym kontenerze. Konsument nigdy nie zaszywa nazwy projektu compose. Wartości sekretne (hasła person) trafiają do `exec` po nazwie zmiennej (`-e NAZWA`, z wartością w środowisku procesu CLI), nigdy w argv, więc nie są widoczne na liście procesów hosta.
+- **`migrate`** to `{ command: [...], env?, timeout? }`. Narzędzie generuje z niego jednorazową usługę compose `<usługa>-migrate`:
+  - ten sam obraz, `env` usługi scalony z `migrate.env`, ten sam `mem_limit`;
+  - **dziedziczy `dependsOn` usługi** (`service_healthy`), więc startuje dopiero po zdrowych zależnościach;
+  - usługa zależy od niej warunkiem `service_completed_successfully`.
 
-  Zapis w worktree z cache jest bez ograniczeń. Ograniczenia dla ścieżek lokalnych opisuje plik runu.
-- **Hook `run`** ma pola `in: host | <usługa kontenerowa>` i `timeout` (domyślnie 10 min; dla `prepare` 20 min). Dla `in: <usługa>` narzędzie samo wykonuje `docker compose -p <projekt> exec`. Konsument nigdy nie zaszywa nazwy projektu compose.
-- **Każde wywołanie zewnętrzne ma limit czasu:** hooki, `docker compose pull` i `git fetch` (z `GIT_TERMINAL_PROMPT=0`, żeby nie zawisnąć na pytaniu o hasło). `pull` i `fetch` mają po 2 ponowienia.
-- **Przełączniki** mają trzy rodzaje `apply`: `env` (zmienna usługi przed jej startem), `jsonFile` (wskaźnik JSON w pliku worktree z cache, przed startem usługi) i `command` (hook z `${toggle.value}`, po seedzie).
-- **`requires`** to lista poleceń hosta (opcjonalnie z wersją minimalną), sprawdzana w preflighcie.
-- **`dependsOn`** czeka na zdrowie zależności. `migrate` usługi wykonuje się po zdrowiu jej zależności i przed startem samej usługi. `seed.after` wymienia migracje wymagane przez seed.
-- **`memory`** jest obowiązkowe dla każdej usługi (dla kontenerów staje się `mem_limit`, dla usług hosta jest deklaracją).
-- **`target: web | mobile-web`** oznacza usługi, na których człowiek lub wykonawca widzi produkt. `mobile-web` niesie w `env.json` zastrzeżenie, że to nie jest build natywny. Opcjonalne **`browser`** (`locale` dla `navigator.language`/`Accept-Language`, `viewport { width, height, mobile }`) to parametry przeglądarki tej powierzchni. Trafiają do `env.json` jako `targets[].browser`, bo należą do środowiska, a nie do scenariusza. Konsumuje je spec #1b. Obiekt `browser` jest opcjonalny i otwarty: nowe klucze dodane przez #1b nie wymagają podbicia `env.v1`.
+  Seed startuje po `up --wait`, czyli po wszystkich migracjach. Obsługa usług jednorazowych w `up --wait` zależy od wersji Compose. Krok 11 planu ustala minimalną wersję testem, a preflight ją egzekwuje.
+- **`files`** to szablony plików konfiguracyjnych renderowane do `runs/<runId>/files/<variant>/<usługa>/` i montowane **tylko do odczytu** do kontenera pod `mountPath` (ścieżka absolutna w kontenerze). Pozycja ma postać `{ mountPath, format: dotenv | json | text, content | template }`. `content` to mapa (dla `dotenv`/`json`) albo tekst; `template` to ścieżka do szablonu względem manifestu.
+  - Narzędzie nie zapisuje niczego do repozytoriów, więc reguła o plikach ignorowanych przez git, kopiach zapasowych i przywracaniu przestała być potrzebna.
+  - Uprawnienia: katalog `files/` ma 0700 (chroni przed innymi użytkownikami hosta), a same pliki 0644, żeby proces w kontenerze działający jako użytkownik inny niż root (np. serwer statyczny, node) mógł je czytać na Linuksie.
+  - Pliki mogą zawierać `${secret.*}` i znikają przy `down`.
+- **Każde wywołanie zewnętrzne ma limit czasu:** hooki, `docker compose pull`, sprawdzenie rejestru, `docker build`, `up --wait` i `git fetch` (z `GIT_TERMINAL_PROMPT=0`). `pull`, sprawdzenie rejestru i `fetch` mają po 2 ponowienia.
+- **Przełączniki** mają trzy rodzaje `apply`: `env` (zmienna usługi przy starcie kontenera), `file` (wskaźnik JSON w pliku z `files` tej usługi, renderowany przed `up`) i `command` (hook QA z `${toggle.value}`, po seedzie).
+- **`dependsOn`** przekłada się na `depends_on: condition: service_healthy` w compose.
+- **`memory`** jest obowiązkowe dla każdej usługi i staje się egzekwowanym `mem_limit`. Usługa `<n>-migrate` dziedziczy limit swojej usługi.
+- **`health`** to `{ http: <ścieżka> } | { command: [...] } | { none: true }` z opcjonalnym `timeout`. Bez `health` obowiązuje `HEALTHCHECK` obrazu. Brak obu to błąd przy `up` (narzędzie sprawdza to przez `docker image inspect`).
+- **`target: web | mobile-web`** oznacza usługi, na których człowiek lub wykonawca widzi produkt. `mobile-web` niesie w `env.json` zastrzeżenie, że to nie jest build natywny. Opcjonalne **`browser`** (`locale` dla `navigator.language`/`Accept-Language`, `viewport { width, height, mobile }`) trafia do `env.json` jako `targets[].browser`. Obiekt jest opcjonalny i otwarty: nowe klucze dodane przez #1b nie wymagają podbicia `env.v1`.
 - **`prRef`** (opcjonalne) to wzorzec refu PR-a dostępny przez git (np. `refs/pull/{n}/head` albo `refs/merge-requests/{n}/head`). Na nim opiera się nakładka PR. Rdzeń nie wywołuje API trackera.
+
+### Obrazy: wybór źródła i budowanie
+
+| Tryb (`--image-source`, domyślnie `auto`) | Zachowanie |
+|---|---|
+| `auto` | Gdy usługa ma `image` i repo pochodzi z cache albo jest czystą ścieżką lokalną: sprawdzenie rejestru (`docker buildx imagetools inspect`). Obraz istnieje → `pull`. Brak → `build` (gdy zdefiniowany), inaczej `blocked: image-missing`. Odpowiedź „denied”/401: zob. Q12. Niezgodna platforma: zob. Q13 |
+| `registry` | Tylko rejestr; brak obrazu to `blocked: image-missing` |
+| `build` | Tylko budowanie; usługa bez `build` to `blocked` |
+
+- Plik runu może nadpisać tryb per usługa (`imageSource: { api: build }`).
+- **Ścieżka lokalna z niezacommitowanymi zmianami** (`dirty`) w trybie `auto` zawsze buduje. Obraz z rejestru dla `HEAD` nie zawiera tych zmian. W trybie `registry` taka kombinacja daje `blocked` z wyjaśnieniem.
+- **Budowanie** używa `docker buildx build` (BuildKit) z lokalnym cache budowania Dockera. Gdy usługa ma też `image`, narzędzie dodaje `--cache-from` z obrazem `defaultRef`, jeśli istnieje. Przy domyślnym sterowniku `docker` daje to efekt tylko wtedy, gdy CI publikuje inline cache (opcja z kontraktu obrazu). Tag lokalny to `e2eqa/<projekt>-<usługa>:<runId>`. Cache budowania nie jest czyszczony przez `down`; rośnie na dysku VM Dockera, a czyszczenie (`docker builder prune --keep-storage …`) zostaje po stronie operatora i jest opisane w dokumentacji.
+- Budowanie idzie po kolei (jedno naraz), żeby nie przekroczyć pamięci VM. Równoległość można zwiększyć flagą `--build-parallel N`.
+- **Kontekst budowania ze ścieżki lokalnej** jest tylko czytany. Obowiązuje `.dockerignore` repo. Narzędzie ostrzega, gdy `.dockerignore` nie wyklucza `.env*`, bo lokalne pliki operatora mogłyby trafić do obrazu.
+- Uwierzytelnienie do rejestru pochodzi z `docker login` operatora; narzędzie go nie przechowuje.
+- `env.json` zapisuje per usługa `image: { source: registry | build, ref, digest?, imageId }`. `digest` (repo digest) istnieje tylko dla obrazu z rejestru. `imageId` (ID konfiguracji obrazu) istnieje zawsze i identyfikuje także obraz zbudowany lokalnie.
 
 ### Słownik stanów seeda (zalecany, v1)
 
@@ -354,11 +405,12 @@ Słownik nie jest abstrakcją na zapas. Każdy stan pochodzi z wymagania 5 brief
 
 Wymogi wobec person: konta bez 2FA i bramki pierwszego logowania (zgody, onboarding) już przebyte. Wyjątkiem jest stan, który jawnie testuje pierwsze logowanie i opisuje to w `description`.
 
-**Kontrakt polecenia seeda.** Narzędzie przekazuje w środowisku:
+**Kontrakt polecenia seeda.** Polecenie wykonuje się w kontenerze usługi z `seed.run.in`. Narzędzie przekazuje w środowisku `exec`:
 
+- `E2E_QA_MODE=1`;
 - `E2E_QA_STATE`: nazwę stanu;
 - `E2E_QA_PERSONA_<NAZWA>_PASSWORD`: hasło każdej wymaganej persony, generowane raz na run i stałe przez cały run;
-- `E2E_QA_SEED_OUTPUT`: ścieżkę pliku wyjścia.
+- `E2E_QA_SEED_OUTPUT`: ścieżkę pliku wyjścia w katalogu `/e2e-qa`. To nazwany wolumen projektu compose montowany do każdego kontenera aplikacyjnego. Wolumen, a nie bind mount, bo nie zależy od UID procesu w kontenerze i znika przy `down -v`. Narzędzie odczytuje z niego pliki przez `docker compose cp`.
 
 `<NAZWA>` to nazwa persony wielkimi literami, w której każdy znak inny niż litera lub cyfra zamieniono na `_` (`scoped-member` → `SCOPED_MEMBER`). Ta sama nazwa zmiennej (`E2E_QA_PERSONA_<NAZWA>_PASSWORD`) obowiązuje w `credentials.env` i w polu `passwordEnv` w `env.json`; jest jedna konwencja. Seed **doprowadza dane dokładnie do stanu**: usuwa ślady poprzedniego stanu i jest idempotentny.
 
@@ -373,22 +425,22 @@ Seed zakłada konta z tymi hasłami i zapisuje do `E2E_QA_SEED_OUTPUT` JSON:
 
 ```json
 { "state": "scoped-access",
-  "personas": { "admin": { "username": "qa-admin@acme.test" }, "scoped-member": { "username": "qa-scoped@acme.test" }, "outsider": { "username": "qa-outsider@acme.test" } },
+  "personas": { "admin": { "username": "qa-admin@acme.test", "identifierKind": "email" }, "scoped-member": { "username": "qa-scoped@acme.test" }, "outsider": { "username": "qa-outsider@acme.test" } },
   "resources": { "A": { "label": "Projekt Alfa" }, "B": { "label": "Projekt Beta" } } }
 ```
 
-Brak wymaganej persony albo zasobu z gwarancji oznacza błąd runu. Hasła nigdy nie wracają w wyjściu seeda. `username` to identyfikator, którym persona loguje się na **swojej** powierzchni (e-mail, telefon, login). Opcjonalne `identifierKind: email | phone | username` w wyjściu seeda podpowiada testującemu, którego pola użyć; dostarcza je seed, bo tylko on zna założone konto.
+Brak wymaganej persony albo zasobu z gwarancji oznacza błąd runu. Hasła nigdy nie wracają w wyjściu seeda. `username` to identyfikator, którym persona loguje się na **swojej** powierzchni (e-mail, telefon, login). Opcjonalne `identifierKind: email | phone | username` podpowiada testującemu, którego pola użyć; dostarcza je seed, bo tylko on zna założone konto.
 
 ### Konta i sesje (tryb i powierzchnia per persona)
 
-Każda persona ma `login` (tryb) i `surface` (powierzchnię logowania, domyślnie `login.surface`). Konsument może mieć różne powierzchnie z różnymi identyfikatorami, np. panel web z e-mailem i hasłem oraz aplikację mobile-web z telefonem i hasłem. `login.notes` może być listą wspólną albo mapą per powierzchnia. `surface` persony i klucze mapy `login.notes` muszą wskazywać usługi z `target`, inaczej walidacja zgłasza błąd. `env.json` podaje każdej personie jej powierzchnię i odpowiednie notatki.
+Każda persona ma `login` (tryb) i `surface` (powierzchnię logowania, domyślnie `login.surface`). Konsument może mieć różne powierzchnie z różnymi identyfikatorami, np. panel web z e-mailem i hasłem oraz aplikację mobile-web z telefonem i hasłem. `login.notes` może być listą wspólną albo mapą per powierzchnia. `surface` persony i klucze mapy `login.notes` muszą wskazywać usługi z `target`, inaczej walidacja zgłasza błąd.
 
 | `login` | Co dostaje testujący | Hooki |
 |---|---|---|
 | `ui` | Login i referencję hasła; loguje się przez UI swojej powierzchni. Pomocniczo `login.notes` (pułapki UI) oraz `e2e-qa otp`, gdy aplikacja wymaga OTP | `login.otp` (opcjonalny), `login.rateLimitReset` |
 | `session` | Gotowy artefakt sesji: plik JSON `{ cookies?, origins?/storageState?, headers?, token?, expiresAt? }` | `login.session` (obowiązkowy dla tego trybu); hook sam obsługuje OTP |
 
-Narzędzie wywołuje hook sesji przy `up` dla każdej persony w trybie `session` i buforuje wynik w pliku 0600 w katalogu runu. `e2e-qa session <persona>` zwraca ścieżkę do ważnej sesji i odświeża ją po upływie `ttl` albo `expiresAt`, co ogranicza zużycie limitów logowania. Wstrzyknięcie sesji do przeglądarki należy do wykonawcy (spec #1b) albo do człowieka.
+Hook sesji zapisuje wynik do `/e2e-qa/session-<persona>.json`, a narzędzie przenosi go do `secrets/` (0600) i buforuje. `e2e-qa session <persona>` zwraca ścieżkę do ważnej sesji i odświeża ją po upływie `ttl` albo `expiresAt`, co ogranicza zużycie limitów logowania. Cookies i originy w sesji muszą dotyczyć `publicUrl` powierzchni. Wstrzyknięcie sesji do przeglądarki należy do wykonawcy (spec #1b) albo do człowieka.
 
 **OTP dla dowolnej tożsamości.** Hook `login.otp` dostaje `${identity}`. `e2e-qa otp <persona>` to przypadek szczególny, w którym `identity` jest `username` persony. `e2e-qa otp --identity <id>` obsługuje tożsamości spoza person, np. konto zarejestrowane w trakcie scenariusza. Środowisko i dane są jednorazowe, więc odczyt OTP dowolnego konta w nim jest zamierzony.
 
@@ -399,91 +451,90 @@ version: 1
 manifest: ./acme-e2e/manifest.yaml       # ścieżka względem pliku runu
 state: scoped-access
 toggles: { new-dashboard: true }
+imageSource: { mobile-web: build }        # opcjonalnie; globalnie: --image-source
 variants:
   default:                                # v1: dokładnie jeden wariant
     refs:
       api: pr:412                         # nakładka: rozwiązywane przez repos.api.prRef
       web: integration/release-train      # gotowa gałąź integracyjna od orkiestratora
     paths:
-      mobile: { path: ../worktrees/mobile-task, prepare: false }   # ścieżka lokalna zamiast cache
+      mobile: ../worktrees/mobile-task    # ścieżka lokalna: kontekst budowania, tylko odczyt
 ```
 
 - Repo nieobecne w `refs` i w `paths` dostaje swój `defaultRef`. Repo z jednoczesnym wpisem w `refs` i w `paths` to błąd walidacji.
 - Każdy wpis `refs` to **jeden** ref: gałąź, tag, SHA albo `pr:<n>`. Listy refów nie istnieją, bo narzędzie nie scala.
 - `variants` to mapa nazw `[a-z0-9-]`. Schemat v1 dopuszcza wiele wariantów, ale implementacja v1 odrzuca więcej niż jeden komunikatem „nieobsługiwane w tej wersji”. Nazwy projektów compose (`e2eqa-<runId>-<variant>`), porty, katalogi i opis środowiska (`env/<variant>.json`, jedna linia `E2E_QA_ENV_<VARIANT>=…` na wariant) już teraz są per wariant, więc dodanie wariantów nie zmieni kontraktu.
-- **Ścieżki lokalne należą do operatora.** Narzędzie nie robi w nich checkoutu, fetcha ani resetu i nie zmienia plików śledzonych przez git. Zapisuje SHA `HEAD` i flagę `dirty`.
-  - `prepare` domyślnie **pomija** (np. `npm ci` skasowałoby `node_modules` operatora) i wypisuje o tym linię. Włącza się je jawnie przez `prepare: true`.
-  - **`files` wolno zapisać wyłącznie do pliku ignorowanego przez git.** Preflight sprawdza to przez `git check-ignore`. Istniejąca wersja pliku trafia do `runs/<runId>/secrets/backup/<repo>/<path>` (0600, bo pliki `.env*` operatora mogą zawierać jego prawdziwe sekrety), a `down` (także `down --stale`) ją przywraca. Plik, którego wcześniej nie było, `down` usuwa. `state.json` zawiera tylko ścieżki, sumy kontrolne i stan przywrócenia, nigdy treść. Plik śledzony przez git (albo nieignorowany) blokuje run w preflighcie, z nazwą pliku i podpowiedzią (dopisać wzorzec do `.gitignore` w repo konsumenta albo użyć źródła `cache`).
-  - Przełącznik `jsonFile` wskazujący repo ze ścieżki lokalnej blokuje run w preflighcie.
+- **Ścieżki lokalne są tylko do odczytu.** Narzędzie nie robi w nich checkoutu, fetcha, resetu ani żadnego zapisu. Służą wyłącznie jako kontekst budowania i źródło SHA (`HEAD` plus flaga `dirty`). Nie ma już `prepare` ani zapisu plików konfiguracyjnych do repo, bo konfiguracja idzie przez `env` i montowane `files`.
 
 ### Konfiguracja operatora (`.e2e-qa/config.yaml`, opcjonalna)
 
-Pola: `queue.waitMinutes` (domyślnie 60), `retention.runs` (ile katalogów zakończonych runów zachować z logami, domyślnie 20) i nadpisanie budżetów pamięci. Flaga `--memory-budget` zmienia budżet. `--ignore-memory-gate` omija bramkę: wymaga podania jej jawnie przy każdym uruchomieniu, a fakt obejścia trafia do `state.json` i `env/<variant>.json`.
+Pola: `queue.waitMinutes` (domyślnie 60), `retention.runs` (ile katalogów zakończonych runów zachować z logami, domyślnie 20), `build.parallel` (domyślnie 1) i nadpisanie budżetu pamięci. Flaga `--memory-budget` zmienia budżet. `--ignore-memory-gate` omija bramkę: wymaga podania jej jawnie przy każdym uruchomieniu, a fakt obejścia trafia do `state.json` i `env/<variant>.json`.
 
-**Bramka pamięci.** Jest deterministyczna i opiera się wyłącznie na deklaracjach:
+**Bramka pamięci.** Jest deterministyczna i liczy tylko kontenery:
 
-- suma `memory` kontenerów ≤ `resources.docker.memory` ≤ całkowita pamięć VM Dockera (`MemTotal` z `docker info`);
-- suma `memory` usług hosta ≤ `resources.host.memory`.
+- suma `memory` usług (z usługami migracji liczonymi jako maksimum, bo kończą się przed startem właściwych usług) ≤ `resources.docker.memory` ≤ całkowita pamięć VM Dockera (`MemTotal` z `docker info`).
 
-Pamięć zajęta przez cudze kontenery nie jest częścią bramki, tylko **ostrzeżeniem** z liczbami: pomiar jest chwilowy i nie nadaje się na twardą regułę. Źródło pomiarów (`docker info`, `docker stats`, RSS procesów) jest wstrzykiwane, żeby bramkę dało się testować bez Dockera. Po starcie narzędzie mierzy RSS usług hosta i zapisuje ostrzeżenie, gdy pomiar przekracza deklarację.
+Limity są egzekwowane przez `mem_limit`. Kontener, który go przekroczy, ginie z `OOMKilled`, a narzędzie pokazuje to w `status`. Pamięć zajęta przez cudze kontenery jest tylko **ostrzeżeniem** z liczbami. Źródło pomiarów (`docker info`, `docker stats`) jest wstrzykiwane, żeby bramkę dało się testować bez Dockera. Budowanie obrazów nie jest objęte bramką (BuildKit nie przyjmuje limitu per build). Dlatego budowanie jest domyślnie sekwencyjne.
 
 ### Katalog roboczy i stan runu
 
-Wszystko, co tworzy narzędzie, leży pod `./.e2e-qa/` w katalogu, z którego je uruchomiono (wymaganie 10: praca pod strażnikiem ścieżek). Wyjątkiem są ścieżki lokalne podane jawnie przez operatora.
+Wszystko, co tworzy narzędzie, leży pod `./.e2e-qa/` w katalogu, z którego je uruchomiono (wymaganie 10: praca pod strażnikiem ścieżek). Ścieżki lokalne operatora są tylko czytane.
 
 ```
 .e2e-qa/
   cache/<repo>.git                 # klon lustrzany (bare) + blokada pliku per repo
   lock/                            # kolejka: owner.json + bilety FIFO
   runs/<runId>/
-    run.yaml  state.json  supervisor.sock
+    run.yaml  state.json
     env/<variant>.json
-    secrets/                       # 0600: credentials.env, sesje person, ${secret.*}
-      backup/<repo>/<path>         # kopie plików ze ścieżek lokalnych nadpisanych przez files
-    compose/<variant>.yaml
-    logs/<variant>/<service>.log
+    compose/<variant>.yaml         # bez wartości sekretów; odwołuje się do env_file w secrets/
+    files/<variant>/<service>/     # katalog 0700, pliki 0644: wyrenderowane files, montowane tylko do odczytu
+    secrets/                       # 0700/0600: credentials.env, env/<variant>/<service>.env, sesje, ${secret.*}
+    logs/<variant>/<service>.log   # zrzut przy down, zamaskowany
     worktrees/<variant>/<repo>/
 ```
 
 `state.json` zawiera:
 
 - refy rozwiązane do SHA (z flagą `dirty` dla ścieżek lokalnych);
-- przydzielone porty i nazwy projektów compose;
-- pliki wyrenderowane z `files` (ze ścieżkami kopii zapasowych dla ścieżek lokalnych);
-- PID supervisora i usług hosta, każdy z **czasem startu procesu**;
+- źródło i digest obrazu każdej usługi;
+- przydzielone porty publikowane i nazwy projektów compose;
+- PID i czas startu procesu CLI tylko na czas fazy `preparing`;
 - status: `preparing | running | degraded | stopped | failed`.
 
-Na tej podstawie da się sprzątnąć osierocony run.
-
-**Cykl życia i blokada.** `up` kończy proces CLI, a stos działa dalej. Właścicielem usług hosta jest **supervisor runu**: odłączony proces (`setsid`), uruchamiany przez `up` jako pierwszy. Supervisor:
-
-- jest rodzicem usług hosta (każda we własnej grupie procesów);
-- pompuje ich wyjście oraz `docker compose logs -f` do `logs/` z maskowaniem sekretów i znacznikami czasu;
-- przyjmuje polecenia CLI przez `supervisor.sock`.
-
-Dzięki temu logi mają właściciela po wyjściu CLI, a `logs --since` filtruje po znacznikach czasu nadanych przez supervisora. Blokada kolejki należy do **`runId`, nie do PID-u CLI**:
+**Żywotność i blokada.** Nie ma procesów hosta, więc źródłem prawdy są **projekty compose** (kontenery z etykietą `e2e-qa.run=<runId>`) i `state.json`. Blokada kolejki należy do `runId`:
 
 - Blokadę zwalnia `down`.
-- Run jest porzucony, gdy supervisor nie żyje. Żywotność weryfikujemy po PID **i** czasie startu procesu, więc PID ponownie użyty po restarcie hosta nie liczy się jako żywy.
-- W fazie `preparing` run jest porzucony także wtedy, gdy nie żyje proces CLI z `owner.json`.
-- Usługa, która padła przy żywym supervisorze, zmienia status runu na `degraded`, widoczny w `status`. Run trzyma blokadę, dopóki operator nie zrobi `down`.
+- W fazie `preparing` run jest porzucony, gdy nie żyje proces CLI z `owner.json` (PID **i** czas startu, więc ponownie użyty PID nie liczy się jako żywy).
+- W fazie `running` run jest porzucony, gdy żaden kontener z jego etykietą nie działa (np. po restarcie Dockera bez `restart` policy).
+- Kontener, który padł (`exited`, `OOMKilled`, `unhealthy`) przy działających pozostałych, zmienia status na `degraded`, widoczny w `status`. Run trzyma blokadę, dopóki operator nie zrobi `down`.
 
-Tylko porzucony run jest sprzątany automatycznie. Sprzątanie zabija grupy procesów wyłącznie po weryfikacji czasu startu. Działający lub zdegradowany stos innego runu oznacza czekanie w kolejce. Po `waitMinutes` czekający run kończy się komunikatem z `runId` i statusem właściciela blokady oraz poleceniem `e2e-qa down <runId>`.
+Tylko porzucony run jest sprzątany automatycznie, wyłącznie po etykiecie `e2e-qa.run`. Działający lub zdegradowany stos innego runu oznacza czekanie w kolejce. Po `waitMinutes` czekający run kończy się komunikatem z `runId` i statusem właściciela blokady oraz poleceniem `e2e-qa down <runId>`.
 
-`down` przywraca pliki ze ścieżek lokalnych z `secrets/backup/` (przed wszystkim innym, żeby awaria dalszego sprzątania ich nie zablokowała). Usuwa też worktree należące do runu (`git worktree remove --force` + `prune`; `--force`, bo pliki z `files` są w nich nieśledzone), kontenery, wolumeny i sieć projektu compose oraz katalog `secrets/`. Jeśli jakaś kopia nie została przywrócona (np. ochrona zmian operatora), `down` usuwa resztę `secrets/`, ale tę kopię zostawia. `retention.runs` nigdy nie usuwa katalogu runu z nieprzywróconą kopią. `status` i `down` wypisują takie pliki. Logi i `state.json` zostają w zakresie `retention.runs`.
+**Logi: odczyt na żądanie z Dockera, bez pompy.** `e2e-qa logs <usługa>` czyta `docker compose logs --timestamps --no-color` i maskuje znane sekrety przy odczycie. `--since` jest filtrowane po znacznikach czasu Dockera po stronie narzędzia, co omija niedokładność `--since` po stronie demona. `down` przed usunięciem kontenerów zrzuca zamaskowane logi do `logs/` (w zakresie `retention.runs`). Uzasadnienie: Docker i tak przechowuje logi kontenerów ze znacznikami czasu. Pompa wymagałaby procesu długożyjącego, którego usunięcie było celem C1. Koszt: do `down` surowe logi z sekretami per run leżą w magazynie logów Dockera. Sekrety są jednorazowe i znikają razem z kontenerami.
+
+**Sekrety poza plikiem compose.** Wygenerowany `compose/<variant>.yaml` nie zawiera wartości sekretów. Zmienne usług (w tym `POSTGRES_PASSWORD` i URL-e z hasłem) trafiają do `secrets/env/<variant>/<usługa>.env` (0600), do którego compose odwołuje się przez `env_file`.
+
+`down` zrzuca logi, robi `docker compose down -v --remove-orphans` dla projektów runu (usuwa też wolumeny `/e2e-qa`), usuwa worktree (`git worktree remove --force` + `prune`), obrazy zbudowane lokalnie dla runu (chyba że `--keep-images`; cache budowania zostaje), katalogi `files/` i `secrets/`. Logi, `state.json` i plik compose (bez sekretów) zostają w zakresie `retention.runs`.
 
 ### `env/<variant>.json`: opis środowiska (kontrakt dla #1b i innych konsumentów)
 
-W całym specu i w briefie #1b skrót `env.json` oznacza plik `env/<variant>.json`. Schemat: `schema/env.v1.json`. Plik nie zawiera żadnej wartości sekretu. URL-e z `${secret.*}` są publikowane z zamaskowanym hasłem (`***`). Pełny URL leży w `credentials.env` pod referencją `urlEnv` (`E2E_QA_SERVICE_<NAZWA>_URL`).
+W całym specu i w briefie #1b skrót `env.json` oznacza plik `env/<variant>.json`. Schemat: `schema/env.v1.json`. Plik nie zawiera żadnej wartości sekretu. URL-e z `${secret.*}` są publikowane z zamaskowanym hasłem (`***`), a pełne wartości leżą w `credentials.env` pod referencjami `publicUrlEnv` (widok hosta) i `urlEnv` (widok kontenera). Usługi podają `publicUrl` (dla przeglądarki i człowieka) i `url` (adres w sieci compose).
 
 ```json
 { "version": 1, "runId": "…", "variant": "default", "status": "running",
   "state": { "name": "scoped-access", "standard": true, "guarantees": "…", "resources": { "A": { "label": "Projekt Alfa" } } },
   "glossary": { "tenant": "organizacja" },
-  "services": { "web": { "url": "http://127.0.0.1:41234", "target": "web", "runtime": "host", "repo": "web", "log": "logs/default/web.log" },
-                "postgres": { "url": "postgres://postgres:***@127.0.0.1:41235/acme", "urlEnv": "E2E_QA_SERVICE_POSTGRES_URL",
-                              "urls": { "async": { "url": "postgresql+asyncpg://postgres:***@127.0.0.1:41235/acme", "urlEnv": "E2E_QA_SERVICE_POSTGRES_URL_ASYNC" } },
-                              "runtime": "container", "container": "e2eqa-…-postgres-1" } },
+  "services": {
+    "web": { "publicUrl": "http://127.0.0.1:41234", "url": "http://web:8080", "target": "web",
+             "image": { "source": "registry", "ref": "registry.example.com/acme/web:<sha>", "digest": "sha256:…", "imageId": "sha256:…" } },
+    "mobile-web": { "publicUrl": "http://127.0.0.1:41236", "url": "http://mobile-web:8080", "target": "mobile-web",
+             "image": { "source": "build", "ref": "e2eqa/acme-mobile-web:<runId>", "imageId": "sha256:…" } },
+    "postgres": { "publicUrl": "postgres://postgres:***@127.0.0.1:41235/acme", "publicUrlEnv": "E2E_QA_SERVICE_POSTGRES_PUBLIC_URL",
+                  "url": "postgres://postgres:***@postgres:5432/acme", "urlEnv": "E2E_QA_SERVICE_POSTGRES_URL",
+                  "urls": { "async": { "publicUrl": "postgresql+asyncpg://postgres:***@127.0.0.1:41235/acme", "publicUrlEnv": "E2E_QA_SERVICE_POSTGRES_PUBLIC_URL_ASYNC",
+                                       "url": "postgresql+asyncpg://postgres:***@postgres:5432/acme", "urlEnv": "E2E_QA_SERVICE_POSTGRES_URL_ASYNC" } },
+                  "container": "e2eqa-…-postgres-1" } },
   "targets": [ { "service": "web", "kind": "web", "browser": { "locale": "pl-PL" } },
                { "service": "mobile-web", "kind": "mobile-web", "caveat": "web build, nie native",
                  "browser": { "locale": "pl-PL", "viewport": { "width": 390, "height": 844, "mobile": true } } } ],
@@ -499,24 +550,25 @@ W całym specu i w briefie #1b skrót `env.json` oznacza plik `env/<variant>.jso
   "startedAt": "…" }
 ```
 
-Kontrakt poświadczeń jest zgodny z zasadą `om-*`: `env/<variant>.json` zawiera tylko **referencje** (`passwordEnv`, `urlEnv`), a wartości leżą w `credentialsFile` (0600, poza gitem). Agent nie powinien czytać tego pliku, tylko ładować go do powłoki. Człowiek odczytuje hasło jawnie przez `e2e-qa creds <persona>`.
+Kontrakt poświadczeń jest zgodny z zasadą `om-*`: `env.json` zawiera tylko **referencje** (`passwordEnv`, `urlEnv`), a wartości leżą w `credentialsFile` (0600, poza gitem). Agent nie powinien czytać tego pliku, tylko ładować go do powłoki. Człowiek odczytuje hasło jawnie przez `e2e-qa creds <persona>`.
 
 ## 📝 API Contracts (CLI)
 
-Kody wyjścia: **0** sukces, **2** błąd walidacji, **3** zablokowany (preflight, kolejka, pamięć, nieistniejący ref), **4** błąd infrastruktury (zdrowie, hook, timeout, sprzątanie niepełne).
+Kody wyjścia: **0** sukces, **2** błąd walidacji, **3** zablokowany (preflight, kolejka, pamięć, nieistniejący ref, brak obrazu), **4** błąd infrastruktury (budowanie, zdrowie, hook, timeout, sprzątanie niepełne).
 
 | Polecenie | Działanie |
 |---|---|
-| `e2e-qa validate <manifest> [--run run.yaml]` | Schemat i reguły semantyczne; raport pokrycia słownika stanów |
-| `e2e-qa checkout <run.yaml>` | Kroki 1–3: przygotowuje kod i wypisuje rozwiązane SHA, bez startu usług |
-| `e2e-qa up <run.yaml> [--wait N] [--keep-on-failure] [--memory-budget X] [--ignore-memory-gate]` | Kroki 1–6; wypisuje `E2E_QA_RUN_ID=…`, `E2E_QA_STATUS=running` i po jednej linii `E2E_QA_ENV_<VARIANT>=<ścieżka>` na wariant |
-| `e2e-qa down [runId \| --stale]` | Sprząta tylko to, co zapisane w `state.json`; idempotentne; zwraca 4 i listę pozostałości, gdy coś zostało |
-| `e2e-qa status [runId] [--json]` | Usługi, URL-e, persony (bez haseł), zdrowie, nieprzywrócone pliki ze ścieżek lokalnych |
-| `e2e-qa seed <state>` | Reset danych do stanu; nowe hasła tylko dla nowych person, unieważnienie sesji, ponowne przełączniki `command`, odświeżenie `env/<variant>.json` |
+| `e2e-qa validate <manifest> [--run run.yaml]` | Schemat i reguły semantyczne (w tym statyczna część kontraktu obrazu: exec form poleceń, `build.args` bez adresów i sekretów); raport pokrycia słownika stanów |
+| `e2e-qa checkout <run.yaml>` | Kroki 1–3: przygotowuje kod i wypisuje rozwiązane SHA |
+| `e2e-qa images <run.yaml> [--image-source auto\|registry\|build]` | Kroki 1–3 i 5: rozwiązuje i buduje obrazy pod blokadą kolejki, bez bramki pamięci i bez startu; sprawdza `HEALTHCHECK`; wypisuje źródło, `digest` i `imageId` |
+| `e2e-qa up <run.yaml> [--wait N] [--keep-on-failure] [--image-source …] [--memory-budget X] [--ignore-memory-gate]` | Kroki 1–9; wypisuje `E2E_QA_RUN_ID=…`, `E2E_QA_STATUS=running` i po jednej linii `E2E_QA_ENV_<VARIANT>=<ścieżka>` na wariant |
+| `e2e-qa down [runId \| --stale] [--keep-images]` | Sprząta po etykietach i `state.json`; idempotentne; zwraca 4 i listę pozostałości, gdy coś zostało |
+| `e2e-qa status [runId] [--json]` | Usługi, `publicUrl`, źródła obrazów, persony (bez haseł), zdrowie, kontenery `OOMKilled` |
+| `e2e-qa seed <state>` | Reset danych do stanu; nowe hasła tylko dla nowych person, unieważnienie sesji, ponowne przełączniki `command`, odświeżenie `env.json` |
 | `e2e-qa creds <persona>` | Wypisuje login i hasło (dla człowieka; nigdy do logów) |
 | `e2e-qa session <persona>` | Ścieżka do ważnej sesji persony w trybie `session` (odświeża, gdy wygasła) |
 | `e2e-qa otp <persona> \| --identity <id>` | Uruchamia hook `login.otp` dla persony albo dowolnej tożsamości, wypisuje kod |
-| `e2e-qa logs <service> [--since 5m]` | Logi z pliku (bez `docker logs --since`) |
+| `e2e-qa logs <service> [--since 5m]` | `docker compose logs --timestamps` z maskowaniem; po `down` zrzut z `logs/` |
 | `e2e-qa data <name> < query` | Przepis `dataAccess.<name>` konsumenta z zapytaniem na stdin |
 
 Bez `runId` polecenia działają na jedynym działającym runie. Jeśli żaden nie działa albo działa kilka, kończą się błędem z listą runów.
@@ -525,111 +577,138 @@ Bez `runId` polecenia działają na jedynym działającym runie. Jeśli żaden n
 
 | Sytuacja | Zachowanie i co widzi operator |
 |---|---|
-| Ref albo `pr:<n>` nie istnieje, fetch odmawia (uprawnienia) | `blocked` przed kolejką, z nazwą repo i refu. Uwierzytelnienie git pochodzi z konfiguracji operatora. `GIT_TERMINAL_PROMPT=0` zamienia pytanie o hasło w błąd |
+| Ref albo `pr:<n>` nie istnieje, fetch odmawia (uprawnienia) | `blocked` przed kolejką, z nazwą repo i refu. `GIT_TERMINAL_PROMPT=0` zamienia pytanie o hasło w błąd |
 | `pr:<n>` dla repo bez `prRef` | Błąd walidacji runu |
 | Ścieżka lokalna nie jest repozytorium git albo nie istnieje | `blocked` w preflighcie |
-| Ścieżka lokalna ma niezacommitowane zmiany | Run idzie dalej; `dirty: true` w `state.json` i `env.json` (wynik może być nieodtwarzalny) |
-| Fetch lub pobieranie obrazu wisi albo sieć zrywa | Limit czasu, 2 ponowienia, potem `error` z nazwą repo lub obrazu |
-| Dwa runy jednocześnie robią fetch do tego samego klona | Blokada pliku per repo w `cache/`; drugi czeka |
-| Stan z runu nie istnieje w manifeście | Błąd walidacji z listą dostępnych stanów |
-| Stan standardowy z innymi personami niż słownik | Błąd walidacji |
-| Docker nie działa albo brak narzędzia z `requires` | `blocked` w preflighcie |
-| Kolejka zajęta dłużej niż `waitMinutes` | `blocked: queue-timeout`; pozycja w kolejce wypisywana w trakcie czekania |
-| Run trzymający blokadę jest porzucony | Najpierw `down` porzuconego runu z jego `state.json`, potem start. Działający stos innego runu nigdy nie jest sprzątany automatycznie |
-| Bramka pamięci | `blocked: memory`, z liczbami: suma `memory` kontenerów vs `resources.docker.memory` vs `MemTotal` VM; osobno host. Pamięć cudzych kontenerów jest tylko ostrzeżeniem. `--ignore-memory-gate` przepuszcza run i zapisuje to |
-| Supervisor padł | Run porzucony; następny `up` lub `down --stale` sprząta go po weryfikacji czasu startu procesów |
-| Usługa hosta padła po starcie | Status `degraded` w `status`; blokada trzymana do `down` |
-| Ścieżka lokalna bez `prepare: true` i bez zainstalowanych zależności | Usługa nie osiąga zdrowia; komunikat błędu podpowiada `prepare: true` |
-| Wyścig o port | Do 3 prób z nowym portem, potem `error` |
-| Usługa nie osiąga zdrowia w limicie czasu | `error`; ścieżka logu i ostatnie linie; sprzątnięcie (chyba że `--keep-on-failure`) |
-| Hook (`prepare`, `migrate`, `seed`, `otp`, `session`, `rateLimitReset`, `dataAccess`) przekracza `timeout` albo kończy się błędem | Grupa procesów hooka zabita, `error` z nazwą hooka i ogonem wyjścia (zamaskowanym) |
+| Ścieżka lokalna ma niezacommitowane zmiany | `auto` buduje obraz z kontekstu (ze zmianami); `dirty: true` w `env.json`; `registry` daje `blocked` |
+| **Brak obrazu w rejestrze** | `auto`: budowanie, gdy jest `build`, z informacją `source: build` w `env.json`; bez `build` albo w trybie `registry`: `blocked: image-missing` z rozwiązanym tagiem |
+| Rejestr wymaga logowania albo odmawia | `blocked: registry-auth` z nazwą rejestru; podpowiedź `docker login` |
+| **Pull wisi albo sieć zrywa** | Limit czasu, 2 ponowienia, potem `error: pull-timeout` z nazwą obrazu |
+| **Błąd budowania** | `error: build-failed` z nazwą usługi, ogonem wyjścia BuildKit (zamaskowanym) i ścieżką pełnego logu w katalogu runu; żaden kontener nie startuje |
+| Budowanie przekracza limit czasu | `error: build-timeout`; proces budowania przerwany |
+| `.dockerignore` nie wyklucza `.env*` w ścieżce lokalnej | Ostrzeżenie przed budowaniem |
+| `build.args` zawiera `${services.*}` albo `${secret.*}` | Błąd walidacji (adres albo sekret wypieczony w obrazie) |
+| **Obraz bez healthchecku** i bez `health` w manifeście | `error: no-healthcheck` po rozwiązaniu obrazu (`images`/`up`), z podpowiedzią `health` albo `health: { none: true }` |
+| Sonda `health: { http }` w obrazie bez `curl`/`wget` | Zależy od Q11 |
+| Rejestr odpowiada „denied”/401 w trybie `auto` | Zależy od Q12 |
+| Obraz w rejestrze w innej platformie niż host | Zależy od Q13 |
+| `health: { none: true }` | Gotowość = kontener działa; ostrzeżenie w wyjściu i w `env.json` |
+| Migracja kończy się błędem | `up --wait` przerwane; `error` z nazwą `<usługa>-migrate` i ogonem logu; sprzątnięcie (chyba że `--keep-on-failure`) |
+| **Hook QA nieaktywny w obrazie** (kod 78) albo nieobecny (kod 126/127 z `exec`) | `error: qa-hook-inactive` albo `qa-hook-missing` z nazwą hooka i usługi; podpowiedź: obraz z targetem `qa` albo sprawdzenie `E2E_QA_MODE` |
+| Hook (np. seed) przekracza pamięć usługi | Hook działa w cgroup usługi, więc OOM może zabić kontener usługi; status `degraded` z nazwą usługi; podpowiedź: zapas w `memory` |
+| Hook przekracza `timeout` albo kończy się błędem | Proces `exec` przerwany, `error` z nazwą hooka i ogonem wyjścia (zamaskowanym) |
 | Wyjście seeda bez wymaganej persony lub zasobu | `error`, z nazwą braku |
 | Hook sesji zwraca sesję bez wymaganych pól albo już wygasłą | `error` przy `up`; przy `e2e-qa session` jedna ponowna próba, potem błąd |
-| `jsonFile` na repo ze ścieżki lokalnej | `blocked` w preflighcie |
-| `files` na ścieżce lokalnej wskazuje plik śledzony albo nieignorowany przez git | `blocked` w preflighcie z nazwą pliku; podpowiedź: wzorzec w `.gitignore` konsumenta albo źródło `cache` |
-| `files` na ścieżce lokalnej, plik ignorowany już istnieje | Kopia do `backup/`, render; `down` przywraca oryginał. Plik nieistniejący wcześniej `down` usuwa |
-| Awaria przed przywróceniem kopii (crash, SIGKILL) | Przywraca je `down --stale` porzuconego runu (wołany ręcznie albo przez następny `up` przy sprzątaniu porzuconego runu), na podstawie jego własnego `state.json`; `status` pokazuje nieprzywrócone pliki |
-| Operator zmienił nadpisany plik w trakcie runu | `down` nie nadpisuje jego zmian: gdy suma kontrolna różni się od wyrenderowanej, kopia zostaje w `secrets/backup/` (0600, poza retencją), a `down` wypisuje ostrzeżenie z obiema ścieżkami |
-| Ścieżka w `files` wychodzi poza repo albo prowadzi przez symlink | Błąd walidacji albo `blocked` w preflighcie (`realpath`) |
-| `down` po runie z `files` w worktree z cache | `git worktree remove --force` usuwa worktree z nieśledzonymi plikami; `down` zwraca 0 |
-| Usługa odwołuje się do `${services.X.*}` usługi, która od niej zależy | Poprawne: porty są przydzielone przed startem. Cyklem jest tylko cykl w `dependsOn` |
-| Przeglądarka otwiera `localhost`, a usługa akceptuje tylko origin `127.0.0.1` (lub odwrotnie) | Zapobiega temu `${services.X.origins}` z obiema formami; `env.json` publikuje URL-e w formie `127.0.0.1` |
-| `e2e-qa otp --identity` z nieznaną tożsamością | Wynik hooka konsumenta (kod albo błąd); wartość przekazana jako jeden argument, bez interpretacji przez powłokę; wartość zaczynająca się od `-` odrzucona |
-| Kontener zależy od usługi hosta (Linux, CI) | `extra_hosts: host-gateway` i `${self.bind}=0.0.0.0` dla tej usługi; ostrzeżenie o nasłuchu na wszystkich interfejsach |
+| Kontener przekracza `mem_limit` | `OOMKilled`; status `degraded` z nazwą usługi i limitem |
+| Usługa z `target` odwołuje się w konfiguracji do `url` zamiast `publicUrl` | Ostrzeżenie walidacji (przeglądarka nie rozwiąże nazwy usługi z sieci compose) |
+| Usługa odwołuje się do `${services.X.*}` usługi, która od niej zależy | Poprawne: porty i adresy są znane przed `up`. Cyklem jest tylko cykl w `dependsOn` |
+| Wyścig o port publikowany (port zajęty między przydziałem a `up`) | Nowy port zmienia `publicUrl` i `origins` w innych usługach, więc ponowienie to pełny cykl: `down` projektu, nowy przydział, ponowny render `files` i `env_file`, `up`. Do 3 prób, potem `error` |
+| Stan z runu nie istnieje w manifeście | Błąd walidacji z listą dostępnych stanów |
+| Stan standardowy z innymi personami niż słownik | Błąd walidacji |
+| Docker, Compose v2 w minimalnej wersji, Buildx (gdy potrzebny) albo `git` niedostępne | `blocked` w preflighcie z wymaganą i znalezioną wersją |
+| Kolejka zajęta dłużej niż `waitMinutes` | `blocked: queue-timeout`; pozycja w kolejce wypisywana w trakcie czekania |
+| Run trzymający blokadę jest porzucony | Najpierw `down` porzuconego runu po etykiecie, potem start. Działający stos innego runu nigdy nie jest sprzątany automatycznie |
+| Bramka pamięci | `blocked: memory`, z liczbami: suma `memory` kontenerów vs `resources.docker.memory` vs `MemTotal` VM. `--ignore-memory-gate` przepuszcza run i zapisuje to |
+| `otp --identity` z wartością zaczynającą się od `-` | Odrzucone przed wywołaniem hooka |
 | Więcej niż jeden wariant w runie | Błąd walidacji „nieobsługiwane w tej wersji” |
-| Ctrl+C, SIGTERM w trakcie `up` | Sprzątnięcie w obsłudze sygnału; `state.json` pozwala dokończyć je przez `down --stale` |
-| Wyciek sekretu do logów | Narzędzie maskuje znane mu wartości (hasła person, sesje, `${secret.*}`) we własnych logach i w logach usług hosta i kontenerów przed zapisem |
+| Ctrl+C, SIGTERM w trakcie `up` | Przerwanie budowania i `up`; sprzątnięcie po etykiecie; `state.json` pozwala dokończyć je przez `down --stale` |
+| Wyciek sekretu do logów | Maskowanie znanych wartości przy odczycie (`logs`) i w zrzucie przy `down`; surowe logi w Dockerze znikają razem z kontenerami |
 
 ## 📝 Risks & Impact Review
 
-- **Publiczne kontrakty, które trudno cofnąć:** `manifest.v1`, `run.v1`, słownik stanów v1 (znaczenie nazw standardowych), kontrakt polecenia seeda i hooka sesji, `env.v1`. Zmiany łamiące wymagają podbicia wersji schematu. Wydanie pakietu, które wprowadza schemat v2, czyta też v1 przez co najmniej jedno kolejne wydanie minor pakietu i wypisuje ostrzeżenie migracyjne.
-- **Słownik zalecany zamiast zamkniętego.** Konsument nie jest blokowany, ale spec #2 (generator) może polegać tylko na stanach standardowych. Stany własne będą dla niego czarnymi skrzynkami z opisem. Pokrycie słownika raportowane przez `validate` pokazuje tę lukę.
-- **Wartość słownika jest mniejsza, niż zakładano** (wniosek z próby na sucho, 2026-10-09). Realne scenariusze częściej wymagają stanów **własnych**, czyli złożeń kilku warunków, niż pojedynczych stanów standardowych. Stany własne są więc głównym mechanizmem, a słownik raczej wspólnym językiem i minimum dla generatora. Spec #2 powinien to uwzględnić, np. przez składanie stanów albo parametryzację.
-- **Kilka dialektów URL-a tej samej usługi** (np. sterownik async i sync bazy). Rozwiązane nazwanymi `urls`, bo składanie z `host`/`port` omija maskowanie. Koszt: kolejne pole w publicznym schemacie.
-- **`files` zapisuje do katalogów konsumenta.** W worktree z cache to bezpieczne. Na ścieżkach lokalnych ryzyko ogranicza zapis wyłącznie do plików ignorowanych przez git, kopia zapasowa i przywrócenie przy `down` (także po awarii). Kopie leżą w `secrets/backup/` (0600) i nie podlegają retencji, dopóki nie zostaną przywrócone. Pozostaje ryzyko, że proces operatora (np. jego własny dev-serwer) przeczyta wyrenderowany plik w trakcie runu. Wyrenderowane pliki mogą zawierać `${secret.*}`; leżą na dysku do `down`, tak jak `secrets/`.
-- **Brak scalania w narzędziu.** Jakość wyniku dla paczki zależy od tego, czy gałąź integracyjna operatora odpowiada temu, co trafi na gałąź główną. `env.json` zapisuje SHA, żeby wynik dało się odtworzyć.
-- **Ścieżki lokalne** dają szybkość (worktree orkiestratora), ale mogą być brudne i zmieniać się w trakcie runu. Mitygacja: SHA i `dirty` w opisie środowiska. Narzędzie nie zmienia tam plików śledzonych; zapisuje tylko pliki ignorowane z kopią zapasową. `prepare` uruchamia tylko na jawne żądanie.
-- **Supervisor to nowy proces długożyjący.** Jego awaria oznacza porzucenie runu (usługi hosta giną razem z nim), co jest bezpieczniejsze niż sieroty bez właściciela logów.
-- **Bezpieczeństwo:**
-  - Hasła person, sesje i sekrety infrastruktury są jednorazowe, generowane per run i trzymane w `secrets/` (0600), usuwane przy `down`.
-  - `env/<variant>.json` zawiera wyłącznie referencje i zamaskowane URL-e.
+- **Kontrakt obrazu zdatnego do QA to nowy, realny koszt po stronie konsumenta.** Repo z build-time env (adresy wypiekane przez bundler) albo bez healthchecku nie wejdzie do manifestu bez zmian w swoim Dockerfile i kodzie startowym. To świadoma cena container-first. Dokumentacja konsumenta musi podać wzorzec runtime config i targetu `qa`.
+- **Bezpieczeństwo hooków QA w obrazach.** Polecenia tworzące konta, czytające OTP i wydające sesje trafiają do obrazów, a te mogą trafić na produkcję. Mitygacja kontraktowa: hooki odmawiają działania bez `E2E_QA_MODE=1`, a zalecany jest osobny target `qa` w Dockerfile. Narzędzie nie weryfikuje tego w obrazie. Odpowiedzialność leży po stronie konsumenta i jego review; ryzyko wymaga jawnej pozycji w dokumentacji konsumenta.
+- **Czas pierwszego startu.** Budowanie obrazów z repo jest wolniejsze niż start procesu na hoście. Mitygacje: obrazy z rejestru (CI buduje per SHA), cache budowania Dockera, `--cache-from`. Skrócenie pętli dla zmian w ścieżce lokalnej (live update) jest poza v1.
+- **Kontekst budowania ze ścieżki lokalnej** może zawierać pliki operatora (np. `.env*`). Chroni przed tym `.dockerignore` konsumenta. Narzędzie ostrzega, ale nie filtruje kontekstu samo.
+- **Publiczne kontrakty, które trudno cofnąć:** `manifest.v1` (w tym `image`/`build`, `files.mountPath`, exec form poleceń), `run.v1`, słownik stanów v1, kontrakt polecenia seeda i hooka sesji, kontrakt obrazu zdatnego do QA (`E2E_QA_MODE`, `/e2e-qa`), `env.v1`. Zmiany łamiące wymagają podbicia wersji schematu. Wydanie pakietu, które wprowadza schemat v2, czyta też v1 przez co najmniej jedno kolejne wydanie minor pakietu i wypisuje ostrzeżenie migracyjne.
+- **Słownik zalecany zamiast zamkniętego.** Spec #2 (generator) może polegać tylko na stanach standardowych. Stany własne będą dla niego czarnymi skrzynkami z opisem.
+- **Wartość słownika jest mniejsza, niż zakładano** (wniosek z próby na sucho, 2026-10-09). Realne scenariusze częściej wymagają stanów **własnych**, czyli złożeń kilku warunków, niż pojedynczych stanów standardowych. Spec #2 powinien to uwzględnić, np. przez składanie stanów albo parametryzację.
+- **Kilka dialektów URL-a tej samej usługi** (np. sterownik async i sync). Rozwiązane nazwanymi `urls`, bo składanie z `host`/`port` omija maskowanie. Koszt: kolejne pole w publicznym schemacie.
+- **Brak scalania w narzędziu.** Jakość wyniku dla paczki zależy od tego, czy gałąź integracyjna operatora odpowiada temu, co trafi na gałąź główną. `env.json` zapisuje SHA i digesty obrazów, żeby wynik dało się odtworzyć.
+- **Bezpieczeństwo danych runu:**
+  - Hasła person, sesje, sekrety infrastruktury i wyrenderowane `files` są jednorazowe, generowane per run i trzymane w katalogach runu o uprawnieniach 0700 (sekrety w plikach 0600, plik compose bez wartości sekretów), usuwane przy `down`. Wyjście seeda i sesje przechodzą przez wolumen `/e2e-qa`, który znika przy `down -v`.
+  - `env.json` zawiera wyłącznie referencje i zamaskowane URL-e.
+  - Sekrety przekazywane do `exec` idą po nazwie zmiennej, nie w argv.
+  - Porty są publikowane wyłącznie na `127.0.0.1`.
   - Kod OTP jest jednorazowy i dotyczy konta demo.
-  - Hook sesji jest kodem konsumenta wykonywanym na hoście, z tym samym zaufaniem co seed.
   - Narzędzie nie przyjmuje sekretów z manifestu (manifest jest commitowany).
-- **Twarda bramka pamięci opiera się na deklaracjach.** Zaniżone `memory` usługi hosta nie zostanie wykryte przed startem. Pomiar RSS po starcie daje tylko ostrzeżenie. Obejście bramki jest jawne i zapisane.
-- **`${self.bind}=0.0.0.0`** wystawia usługę hosta na wszystkie interfejsy na czas runu. Ostrzeżenie w wyjściu; dotyczy tylko usług, od których zależy kontener.
+- **Bramka pamięci** jest teraz egzekwowana przez `mem_limit`, ale nie obejmuje budowania obrazów. Mitygacja: budowanie sekwencyjne domyślnie. Hooki QA liczą się do limitu swojej usługi.
+- **Cache budowania rośnie bez limitu** na dysku VM Dockera. Czyszczenie należy do operatora (`docker builder prune --keep-storage`). Automatyczna polityka może dojść później.
+- **Zależność od wersji Compose.** Zachowanie `up --wait` z usługami jednorazowymi zmieniało się między wersjami Compose v2. Minimalną wersję ustala test w kroku 11, a preflight ją egzekwuje.
+- **Zdalny Docker jako droga „na serwer”.** Ten sam plik compose może iść na zdalny host przez `DOCKER_HOST=ssh://…` albo kontekst `docker context`. To naturalna ścieżka bez Terraform czy Ansible, ale poza v1. Wymaga rozwiązania: publikacji portów i dostępu przeglądarki (tunel albo publikacja na interfejsie zdalnym), przesyłania kontekstu budowania (albo wyłącznie obrazów z rejestru), montowania `files` i `io` (bind mount ze ścieżki lokalnej nie działa na zdalnym demonie; potrzebne wolumeny albo `configs`).
 
 ## 📋 Poza zakresem
 
-- Kontrakt scenariusza MD i styk z wykonawcą QA (kształt styku, Q4 otwarte ponownie): spec #1b.
-- Kilka wariantów w jednym runie (kontrakt jest gotowy, implementacja w późniejszym speca lub fazie).
+- Kontrakt scenariusza MD i styk z wykonawcą QA (Q4 otwarte ponownie): spec #1b.
+- **Tryb `runtime: host`** (usługi aplikacyjne jako procesy hosta): możliwe rozszerzenie dla repozytoriów bez obrazu zdatnego do QA albo dla szybkiej pętli deweloperskiej. Wymagałby supervisora, grup procesów i zapisu konfiguracji do repo, czyli tego, co v1 usunął.
+- Live update i synchronizacja plików do kontenerów.
+- Zdalny Docker (`DOCKER_HOST=ssh://…`), serwer i PaaS.
+- Kilka wariantów w jednym runie (kontrakt jest gotowy, implementacja później).
 - Scalanie paczek PR-ów; API trackera.
 - Generator scenariuszy, ocena dowodów, pętla naprawy, UI historii (specy #2–#4).
-- Emulator i build natywny; serwer i PaaS.
-- Cache przygotowania zależności między runami.
+- Emulator i build natywny.
 
 ## 📋 Phasing
 
 Każda faza zostawia działające, użyteczne narzędzie.
 
-1. **Manifest i walidacja.** Konsument może napisać i zwalidować manifest.
-2. **Kod repozytoriów.** `e2e-qa checkout` przygotowuje kod z refów, PR-ów albo ścieżek lokalnych.
-3. **Start stosu.** `up`/`down`/`status` z supervisorem, kolejką, bramką pamięci i plikami konfiguracyjnymi usług oraz `env/<variant>.json` z usługami. Człowiek może testować ręcznie na kontach z danych deweloperskich konsumenta, jeśli migracje je zakładają.
-4. **Stan danych i konta.** Seed, persony, przełączniki, sesje, `creds`/`otp`/`logs`/`data`, `env/<variant>.json` uzupełniony o persony i stan. Środowisko jest gotowe do testów ręcznych i do speca #1b.
+1. **Manifest i walidacja.** Konsument może napisać i zwalidować manifest, łącznie ze statyczną częścią kontraktu obrazu.
+2. **Kod repozytoriów.** `e2e-qa checkout` przygotowuje kod z refów, PR-ów albo ścieżek lokalnych (tylko odczyt).
+3. **Obrazy.** `e2e-qa images` rozwiązuje obrazy z rejestru albo je buduje, z cache, i raportuje źródło i digest.
+4. **Start stosu.** `up`/`down`/`status`/`logs` przez wygenerowany compose (migracje, zdrowie, limity, `files`), kolejka i bramka pamięci, `env.json` z usługami. Człowiek może testować ręcznie na kontach z danych deweloperskich konsumenta, jeśli migracje je zakładają.
+5. **Stan danych i konta.** Hooki QA przez `exec`, seed, persony, przełączniki, sesje, `creds`/`otp`/`data`, pełny `env.json`. Środowisko jest gotowe do testów ręcznych i do speca #1b.
 
 ## 📋 Implementation Plan
 
-Testy jednostkowe: vitest. Testy integracyjne z Dockerem są oznaczone i pomijane, gdy Dockera nie ma. W CI (GitHub Actions, Linux) działają. Fikcyjny konsument testowy żyje w `examples/acme/`: maleńkie usługi HTTP w Node, postgres i redis, lokalne repozytoria bare tworzone w teście.
+Testy jednostkowe: vitest. Testy integracyjne z Dockerem są oznaczone i pomijane, gdy Dockera nie ma. W CI (GitHub Actions, Linux) działają. Fikcyjny konsument testowy żyje w `examples/acme/`: maleńkie usługi HTTP w Node z Dockerfile (target `qa` z hookami, runtime config, healthcheck), postgres i redis, lokalne repozytoria bare tworzone w teście oraz lokalny rejestr (`registry:2`) w teście.
 
 ### Faza 1: manifest i walidacja
 
 1. Szkielet pakietu: TypeScript, Node ≥20, bin `e2e-qa`, `--version`, lint i testy w CI. Test: `npx e2e-qa --version`.
-2. JSON Schema `manifest.v1` i `run.v1` (z mapą `variants` i zarezerwowanym kluczem `qa`) oraz `e2e-qa validate` z czytelnymi błędami (ścieżka YAML i linia). Test: poprawny i niepoprawne manifesty `examples/acme`; manifest, w którym `api` odwołuje się do `${services.web.origins}`, a `web` zależy od `api`, przechodzi walidację.
-3. Reguły semantyczne: cykle w `dependsOn` i `seed.after` (placeholdery nie tworzą krawędzi), nierozwiązywalne placeholdery, `files` (format zgodny z `content`, ścieżka wewnątrz repo), `surface` person i klucze `login.notes` wskazujące usługi z `target`, placeholdery wartości wejściowych wewnątrz cudzysłowów w poleceniach, słownik stanów (znaczenie nazw standardowych, `description`/`personas` stanów własnych, raport pokrycia), brak `memory`, nieznane przełączniki i stany w runie, `pr:` bez `prRef`, repo w `refs` i `paths` naraz, więcej niż jeden wariant. Test: tabela przypadków.
+2. JSON Schema `manifest.v1` i `run.v1` (z `image`/`build`, `files.mountPath`, exec form poleceń, mapą `variants`, `imageSource`, zarezerwowanym kluczem `qa`) oraz `e2e-qa validate` z czytelnymi błędami (ścieżka YAML i linia). Test: poprawny i niepoprawne manifesty `examples/acme`; manifest, w którym `api` odwołuje się do `${services.web.origins}`, a `web` zależy od `api`, przechodzi walidację.
+3. Reguły semantyczne:
+   - cykle w `dependsOn` (placeholdery nie tworzą krawędzi) i nierozwiązywalne placeholdery;
+   - polecenia wyłącznie w exec form, a placeholdery wejściowe jako całe elementy tablicy;
+   - `build.args` bez `${services.*}`/`${secret.*}`; ostrzeżenie `url` zamiast `publicUrl` w usługach z `target`;
+   - `surface` person i klucze `login.notes` wskazujące usługi z `target`;
+   - słownik stanów (znaczenie nazw standardowych, `description`/`personas` stanów własnych, raport pokrycia);
+   - brak `memory`, nieznane przełączniki i stany w runie, `pr:` bez `prRef`, repo w `refs` i `paths` naraz, więcej niż jeden wariant.
+
+   Test: tabela przypadków.
 
 ### Faza 2: kod repozytoriów
 
 4. Cache lustrzany z blokadą per repo, fetch z limitem czasu i `GIT_TERMINAL_PROMPT=0`, worktree per (wariant, repo). Test: lokalne repozytoria bare i dwa równoległe fetche.
 5. Nakładka `pr:<n>` przez `prRef`. Test: repo bare z refem `refs/pull/7/head`.
-6. Ścieżki lokalne: weryfikacja, SHA, `dirty`, brak modyfikacji, `prepare` tylko przy `prepare: true`; polecenie `e2e-qa checkout`. Test: `git status` i lista plików ścieżki lokalnej identyczne przed i po.
+6. Ścieżki lokalne: weryfikacja, SHA, `dirty`, zero zapisu; polecenie `e2e-qa checkout`. Test: `git status` i lista plików (z mtime) ścieżki lokalnej identyczne przed i po.
 
-### Faza 3: start stosu
+### Faza 3: obrazy
 
-7. Przydział wszystkich portów przed startem i rozwiązywanie placeholderów w widoku hosta i kontenera, wraz z `${secret.*}`, `${self.bind}`, `url`/`urls`, `origins` i cytowaniem wartości wejściowych w hookach. Test jednostkowy: odwołanie do usługi zależnej rozwiązuje się; `origins` zawiera obie formy w widoku przeglądarki także dla kontenera; usługa hosta, do której kontener sięga tylko przez placeholder, dostaje bind `0.0.0.0`; `${identity}` ze znakami powłoki nie wykonuje polecenia (`in: host` i `in: <usługa>`), a wartość z wiodącym `-` jest odrzucana.
-8. Render `files` (`dotenv`, `json`, `text`) przed `prepare`/`start`. Kontrola `realpath` i symlinków. Na ścieżkach lokalnych `git check-ignore`, kopia do `secrets/backup/` (0600), wpis w `state.json` (bez treści), przywrócenie lub usunięcie przy `down` i `down --stale`, ochrona zmian operatora po sumie kontrolnej, wyłączenie z retencji. Test: w worktree z cache plik powstaje z rozwiązanym adresem, a `down` zwraca 0; symlink poza repo daje `blocked`; na ścieżce lokalnej plik śledzony daje `blocked`, a plik ignorowany jest po `down` identyczny bajt w bajt z oryginałem (także po zabiciu procesu i `down --stale`); plik nieistniejący wcześniej znika; `git status` ścieżki lokalnej jest identyczny przed i po.
-9. Generowanie pliku compose (projekt `e2eqa-<runId>-<variant>`, `mem_limit`, healthcheck, porty, `extra_hosts: host-gateway`), `pull` z ponowieniami, `up`/`down`/`exec`. Test integracyjny na Linuksie w CI: postgres i redis startują i są zdrowe.
-10. Supervisor runu: start odłączony, `supervisor.sock`, pompa logów (usługi hosta i `docker compose logs -f`) z maskowaniem i znacznikami czasu, PID z czasem startu w `state.json`. Test: znany sekret wypisany przez usługę i przez kontener nie trafia do `logs/`; supervisor przeżywa wyjście CLI.
-11. Usługi hosta jako dzieci supervisora: `prepare` z limitem czasu, start we własnej grupie procesów, sondy zdrowia, `env/<variant>.json` z usługami (URL-e zamaskowane, `urlEnv`). Test: usługa HTTP z `examples/acme` żyje po wyjściu CLI i odpowiada kontenerowi przez `host.docker.internal`; `env/<variant>.json` nie zawiera wartości sekretu.
-12. Graf startu z hookami `migrate` (`in: host | <usługa>`, `timeout`). Test: migracja zakładająca schemat przed zależną usługą oraz hook przekraczający limit.
-13. Preflight (`docker`, `requires`) i twarda bramka pamięci (deklaracje vs budżet vs `MemTotal`) z `--ignore-memory-gate`, ostrzeżenia (cudze kontenery, RSS ponad deklarację), wstrzykiwane źródło pomiarów. Test jednostkowy bez Dockera: zaniżony budżet daje `blocked: memory` z liczbami; obejście jest zapisane w `state.json`; RSS ponad deklarację daje ostrzeżenie.
-14. Kolejka FIFO z blokadą po `runId`, wykrywanie porzuconego runu (supervisor: PID + czas startu), status `degraded`, `up`/`down`/`status`/`down --stale`, sprzątanie worktree i `secrets/`, retencja `runs/`, obsługa SIGINT/SIGTERM, kody wyjścia. Test: drugi `up` czeka na działający stos i kończy się komunikatem z `runId` po `waitMinutes`; run z zabitym supervisorem zostaje sprzątnięty; PID z innym czasem startu nie jest zabijany; SIGINT w trakcie `up` zostawia czysty stan; `down` z pozostałością zwraca 4.
+7. Rozwiązanie szablonu tagu (`${repo.*}`), sprawdzenie rejestru z limitem czasu i ponowieniami, `pull`, digest, tryby `auto`/`registry`/`build` i nadpisanie per usługa, reguła `dirty` → `build`. Test integracyjny z lokalnym rejestrem: obraz istnieje → `source: registry`; brak → `source: build`; `registry` bez obrazu → `blocked: image-missing`; ścieżka `dirty` → `build`.
+8. Budowanie obrazów przez `docker buildx build` z cache budowania Dockera i `--cache-from`, sekwencyjnie (domyślnie), z limitem czasu, ostrzeżeniem o `.dockerignore` i lokalnym tagiem `e2eqa/…:<runId>`; kontrola `HEALTHCHECK` (`docker image inspect`), `digest`/`imageId`; polecenie `e2e-qa images` pod blokadą kolejki. Test: obraz bez healthchecku i bez `health` daje `error: no-healthcheck`; drugi build tego samego kontekstu korzysta z cache (czas i log BuildKit `CACHED`); błąd w Dockerfile daje `error: build-failed` z ogonem; niezacommitowana zmiana w ścieżce lokalnej jest widoczna w zbudowanym obrazie.
 
-### Faza 4: stan danych i konta
+### Faza 4: start stosu
 
-15. Słownik stanów w kodzie, wywołanie seeda z kontraktem `E2E_QA_*` (reguła nazw zmiennych), walidacja wyjścia. Test: seed `examples/acme` dla stanów standardowych i własnego, podwójny seed (idempotencja), seed z niepełnym wyjściem.
-16. Generowanie haseł person, `secrets/credentials.env` (0600, `E2E_QA_PERSONA_*`, `E2E_QA_SERVICE_*_URL` i `E2E_QA_SERVICE_*_URL_<NAZWA>`), `e2e-qa creds`. Test: żadne hasło ani sekret nie pojawia się w logach narzędzia, `state.json` ani `env/<variant>.json`.
-17. Przełączniki `env` i `jsonFile` (wskaźnik JSON, tylko worktree z cache) przed startem usługi, `command` po seedzie. Test: wartość przełącznika widoczna w odpowiedzi usługi; `jsonFile` na ścieżce lokalnej daje `blocked`.
-18. Tryby logowania: `surface` per persona i `login.notes` per powierzchnia, `login.otp` z `${identity}`, `login.rateLimitReset`, `login.session` z buforem i `ttl`, polecenia `otp <persona>`, `otp --identity` i `session`. Test: atrapa hooka sesji wywołana raz w obrębie `ttl`, ponownie po wygaśnięciu; `otp --identity` przekazuje tożsamość spoza person; persona z `surface: mobile-web` dostaje w `env.json` notatki tej powierzchni.
+9. Przydział portów publikowanych i sekretów przed `up`; placeholdery w widoku kontenera i przeglądarki (`url`, `publicUrl`, `urls`, `origins`); podstawianie wartości wejściowych w exec form. Test jednostkowy: odwołanie do usługi zależnej rozwiązuje się; `origins` zawiera obie formy; `${identity}` ze znakami powłoki trafia jako jeden argument, a wartość z wiodącym `-` jest odrzucana.
+10. Render `files` do `runs/<id>/files/` (katalog 0700, pliki 0644) i montowanie tylko do odczytu pod `mountPath`; przełączniki `env` i `file`. Test na Linuksie z kontenerem działającym jako użytkownik inny niż root: kontener czyta plik z rozwiązanym `publicUrl` i nie może go zapisać. Przełącznik `file` zmienia wartość pod wskaźnikiem. Żaden plik w repozytoriach nie powstaje.
+11. Generowanie pliku compose:
+    - projekt `e2eqa-<runId>-<variant>`, etykiety `e2e-qa.run`, `mem_limit`, healthchecki;
+    - usługi `<n>-migrate` z odziedziczonym `dependsOn` i `service_completed_successfully`, `depends_on: service_healthy`;
+    - publikacja na `127.0.0.1`, nazwany wolumen `/e2e-qa`, `E2E_QA_MODE=1`;
+    - zmienne usług przez `env_file` w `secrets/`, plik compose bez wartości sekretów;
+    - `up --wait` z limitem czasu; ustalenie minimalnej wersji Compose i jej kontrola w preflighcie.
+
+    Test integracyjny: kolejność postgres → `api-migrate` (startuje dopiero po zdrowym postgresie) → api → web; nieudana migracja przerywa `up`; `up --wait` kończy się sukcesem przy zakończonych usługach migracji; `grep` sekretu w `compose/` nic nie znajduje.
+12. Preflight (Docker, Compose v2, Buildx, `git`) i twarda bramka pamięci (kontenery vs budżet vs `MemTotal`) z `--ignore-memory-gate`, ostrzeżenie o cudzych kontenerach, wstrzykiwane źródło pomiarów. Test jednostkowy bez Dockera: zaniżony budżet daje `blocked: memory` z liczbami; obejście jest zapisane w `state.json`. Test integracyjny: kontener przekraczający `mem_limit` daje `OOMKilled` i status `degraded`.
+13. Kolejka FIFO z blokadą po `runId`, żywotność z etykiet compose i `state.json` (PID CLI z czasem startu tylko w `preparing`), status `degraded`, `up`/`down`/`status`/`down --stale`, `logs` (`--timestamps`, filtr `--since`, maskowanie przy odczycie, zrzut przy `down`), sprzątanie po etykietach, retencja `runs/`, SIGINT/SIGTERM, kody wyjścia. Test: drugi `up` czeka na działający stos i kończy się komunikatem z `runId` po `waitMinutes`; run z zatrzymanymi kontenerami zostaje sprzątnięty; zajęty port wymusza pełny cykl ponownego renderu z nowymi `publicUrl`; `down` nie dotyka kontenerów bez etykiety runu; sekret wypisany przez usługę nie pojawia się w `logs` ani w zrzucie; SIGINT w trakcie budowania zostawia czysty stan; `down` z pozostałością zwraca 4.
+
+### Faza 5: stan danych i konta
+
+14. Hooki QA przez `docker compose exec -T` (exec form, sekrety po nazwie zmiennej, `E2E_QA_MODE=1`, odczyt `/e2e-qa` przez `docker compose cp`, limit czasu), rozpoznanie `qa-hook-missing` (126/127) i `qa-hook-inactive` (78). Test: obraz `examples/acme` bez targetu `qa` daje `qa-hook-missing`; polecenie uruchomione bez `E2E_QA_MODE` kończy się kodem 78 i daje `qa-hook-inactive`; hasło nie pojawia się w `ps` hosta w trakcie `exec`.
+15. Słownik stanów w kodzie, seed z kontraktem `E2E_QA_*` i wyjściem w `/e2e-qa`, walidacja wyjścia. Test: seed `examples/acme` dla stanów standardowych i własnego, podwójny seed (idempotencja), seed z niepełnym wyjściem.
+16. Generowanie haseł person, `secrets/credentials.env` (0600, `E2E_QA_PERSONA_*`, `E2E_QA_SERVICE_*_URL[_<NAZWA>]`, `E2E_QA_SERVICE_*_PUBLIC_URL[_<NAZWA>]`), `e2e-qa creds`. Test: żadne hasło ani sekret nie pojawia się w `state.json`, `env.json`, `compose/` ani w zrzucie logów.
+17. Przełączniki `command` po seedzie. Test: wartość przełącznika widoczna w odpowiedzi usługi.
+18. Tryby logowania: `surface` per persona i `login.notes` per powierzchnia, `login.otp` z `${identity}`, `login.rateLimitReset`, `login.session` z buforem i `ttl`, polecenia `otp <persona>`, `otp --identity` i `session`. Test: hook sesji wywołany raz w obrębie `ttl`, ponownie po wygaśnięciu; `otp --identity` przekazuje tożsamość spoza person; persona z `surface: mobile-web` dostaje w `env.json` notatki tej powierzchni.
 19. `e2e-qa seed <stan>` na działającym stosie: hasła tylko dla nowych person, unieważnienie sesji, ponowne przełączniki `command`. Test: przejście `baseline` → `scoped-access` daje nową personę z hasłem, stare hasła bez zmian, bufor sesji pusty.
-20. `logs --since` (znaczniki czasu supervisora) i `data` (przepis `dataAccess`, zapytanie na stdin). Test: `data` na `examples/acme` zwraca wynik; przepis z rolą tylko do odczytu odrzuca zapis.
-21. `env.v1` pełny (persony z powierzchnią i `identifierKind`, stan, targety z `browser`, zastrzeżenie `mobile-web`, `urls` z referencjami, SHA, stan bramki) i `status --json`. Test kontraktowy: plik przechodzi `schema/env.v1.json`, a snapshot dla `examples/acme` jest stabilny. Dokumentacja dla konsumenta: jak napisać manifest, seed i hook sesji.
+20. `data` (przepis `dataAccess`, zapytanie na stdin przez `exec`). Test: `data` na `examples/acme` zwraca wynik; przepis z rolą tylko do odczytu odrzuca zapis.
+21. `env.v1` pełny (usługi z `publicUrl`/`url` i źródłem obrazu z digestem, persony z powierzchnią i `identifierKind`, stan, targety z `browser`, zastrzeżenie `mobile-web`, `urls` z referencjami, SHA, stan bramki) i `status --json`. Test kontraktowy: plik przechodzi `schema/env.v1.json`, a snapshot dla `examples/acme` jest stabilny. Dokumentacja dla konsumenta: manifest, kontrakt obrazu zdatnego do QA (runtime config, healthcheck, migracje, target `qa`, `E2E_QA_MODE`), seed i hook sesji.

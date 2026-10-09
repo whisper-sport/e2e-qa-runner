@@ -29,6 +29,7 @@ Próba na sucho (2026-10-09) pokazała, że realne scenariusze obejmują **kilka
   - opcjonalnie `refs`.
 
   Treść to kroki do przejścia. Narzędzie składa z nagłówka plik runu #1a, stawia środowisko i uruchamia wykonawcę.
+- **Targety to usługi-kontenery** (#1a jest container-first): wykonawca łączy się z ich portami opublikowanymi na `127.0.0.1` (`publicUrl` w `env.json`), a nie z procesami hosta.
 - **Wiele targetów w jednym scenariuszu.** Wykonawca dostaje wszystkie zadeklarowane powierzchnie, persony (z powierzchnią logowania każdej) i dostęp do API i bazy.
 - **Parametry przeglądarki per target.** Język interfejsu (`navigator.language`) i viewport mobilny pochodzą z `env.json` (`targets[].browser`, już w kontrakcie #1a), a nie ze scenariusza.
 - **Werdykt z dowodami** w zakresie, w jakim daje go wykonawca. Ocena dowodów i kontrakt dowodu to nadal spec #3.
@@ -59,7 +60,7 @@ Pochodzą z lektury skilli `om-auto-qa-pr` i `om-prepare-test-env` i dotyczą op
 - `startedByThisRepo: false` oraz `--keep-env` sprawiają, że wykonawca nie zrywa środowiska.
 - Tryb lokalny `om-auto-qa-pr` sam wyprowadza scenariusz z `git diff <base>...HEAD`. Kontrakt scenariusza MD odwraca to źródło: kroki są dane, nie wyprowadzane. To argument za opcją (a) albo (b).
 - Mitygacje znalezione w przeglądzie, aktualne dla każdej opcji:
-  - adaptery i pliki dopisane do worktree nie mogą pojawić się w `git status` (`info/exclude`, `skip-worktree`); na ścieżkach lokalnych tylko pliki ignorowane, jak `files` w #1a;
+  - adaptery i pliki dopisane do worktree nie mogą pojawić się w `git status` (`info/exclude`, `skip-worktree`); ścieżki lokalne są w #1a tylko do odczytu, więc adaptery w nich wymagają osobnej decyzji (np. kopia robocza w katalogu runu);
   - shim z absolutną ścieżką do binarki zamiast `npx`;
   - limit czasu wykonawcy;
   - detektor `environment-compromised`;
@@ -71,7 +72,7 @@ Pochodzą z lektury skilli `om-auto-qa-pr` i `om-prepare-test-env` i dotyczą op
 
 - **Q4 (ponownie):** opcja (a), (b) czy (c)?
 - **Los klucza `qa` w manifeście** (zarezerwowanego w #1a). Przy styku per diff służył mapowaniu `qa.<repo>.surface`. Przy kontrakcie scenariusza może okazać się zbędny albo przejąć domyślne `targets`/`access` dla repozytoriów bez scenariusza.
-- **Spięcie z orkiestratorem:** kto po runie agenta tworzy plik runu albo scenariusza (orkiestrator, skill agenta, człowiek)? Worktree orkiestratora jako ścieżka lokalna wymaga `prepare: true` albo wcześniej przygotowanych zależności. Kto za to odpowiada?
+- **Spięcie z orkiestratorem:** kto po runie agenta tworzy plik runu albo scenariusza (orkiestrator, skill agenta, człowiek)? Worktree orkiestratora jako ścieżka lokalna jest w #1a tylko kontekstem budowania obrazu (tryb `auto` buduje, gdy są niezacommitowane zmiany). Czy orkiestrator czeka na obraz z CI dla SHA, czy zawsze buduje lokalnie?
 - **Skąd scenariusz:** ręcznie pisany MD, katalog regresji (#2) czy oba? Format kroków: wolny tekst czy struktura (akcja, oczekiwany efekt, target)?
 - **Wstrzyknięcie sesji** persony w trybie `session` do `agent-browser`.
 - **Polecenie wykonawcy:** stałe czy konfigurowalne z adapterem per agent CLI?
