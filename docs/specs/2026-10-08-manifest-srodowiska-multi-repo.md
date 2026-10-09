@@ -1,6 +1,6 @@
 # Spec #1a: manifest środowiska multi-repo z kontraktem seeda i kont QA (container-first)
 
-- Status: **projekt; przebudowa container-first (2026-10-09); otwarte pytania Q11–Q13 z przeglądu przebudowy**
+- Status: **projekt; przebudowa container-first (2026-10-09); wszystkie pytania zamknięte (Q1–Q13)**
 - Brief: [`docs/specs/briefs/2026-10-08-manifest-srodowiska.md`](briefs/2026-10-08-manifest-srodowiska.md)
 - Następny spec (#1b, kontrakt scenariusza i styk z wykonawcą QA): [`docs/specs/briefs/2026-10-09-styk-z-wykonawca-qa.md`](briefs/2026-10-09-styk-z-wykonawca-qa.md)
 - Wejście z eksperymentu: [`docs/research/2026-10-08-scenariusze-z-ac-probe.md`](../research/2026-10-08-scenariusze-z-ac-probe.md), sekcja „Problemy środowiska”
@@ -47,13 +47,13 @@ Zespół, którego zmiany wytwarzają agenci, nie ma dziś kim i czym przejść 
 | C5 | `mem_limit` jest egzekwowany; bramka liczy tylko kontenery |
 | C6 | Zdalny Docker (`DOCKER_HOST=ssh://…`) to rozszerzenie poza v1 |
 
-### ❓ Open Questions (po przeglądzie przebudowy, 2026-10-09)
+### Pytania z przeglądu przebudowy (2026-10-09)
 
-- **Q11. Sonda `health: { http }`.** Healthcheck compose wykonuje się w kontenerze, więc sonda HTTP wymaga `curl` albo `wget` w obrazie (obrazy distroless i część obrazów serwerów statycznych ich nie mają). Opcje: (a) wymóg w kontrakcie obrazu; (b) w manifeście tylko `command` (sonda HTTP jako polecenie konsumenta); (c) sonda z hosta, ale wtedy `up --wait` nie pilnuje zdrowia i kolejność `service_healthy` przestaje działać.
-- **Q12. Tryb `auto`, gdy rejestr odpowiada „denied”/401.** Część rejestrów odpowiada tak samo dla braku uprawnień i dla nieistniejącego obrazu prywatnego. Opcje: (a) zawsze `blocked: registry-auth`; (b) przejście do `build` z ostrzeżeniem; (c) `build`, gdy operator ma zapisane logowanie do tego rejestru, inaczej `blocked`.
-- **Q13. Platforma obrazu (np. obraz z CI tylko `linux/amd64`, host `arm64`).** Opcje: (a) kontrola platformy przy sprawdzaniu rejestru, a przy niezgodności `build` w trybie `auto`; (b) pull z emulacją i ostrzeżenie; (c) `blocked`.
-
-Do czasu odpowiedzi spec opisuje mechanizmy neutralnie wobec tych wyborów; dotknięte miejsca są oznaczone odwołaniem do pytania.
+| # | Pytanie | Decyzja |
+|---|---|---|
+| Q11 | Sonda `health: { http }` (healthcheck compose działa w kontenerze) | Wymóg w kontrakcie obrazu: obraz z `health: { http }` musi mieć `curl` albo `wget` (obrazy alpine i nginx mają `wget` z busyboxa); brak to błąd. `health.command` zostaje dla obrazów bez tych narzędzi (np. distroless) |
+| Q12 | Tryb `auto`, gdy rejestr odpowiada „denied”/401 | Zależnie od logowania: gdy operator ma zapisane logowanie do tego rejestru, 401/denied oznacza brak obrazu, więc narzędzie buduje lokalnie i zapisuje powód w `env.json`. Bez logowania: `blocked: registry-auth` z podpowiedzią `docker login` |
+| Q13 | Platforma obrazu niezgodna z hostem | Build lokalny: platformę sprawdza się przy kontroli rejestru; przy niezgodności tryb `auto` buduje natywnie i zapisuje powód w `env.json`. To będzie norma przy runnerach CI `amd64` i hostach `arm64` |
 
 ## 📝 Problem Statement
 
@@ -158,7 +158,7 @@ Narzędzie zakłada, że obraz każdej usługi aplikacyjnej spełnia pięć waru
    - Frontend serwowany statycznie stosuje wzorzec **runtime config**: entrypoint kontenera generuje `env.js` albo `config.json` ze zmiennych, a aplikacja ładuje go przed startem. Alternatywnie narzędzie montuje gotowy `config.json` przez `files`.
    - **Build-time env bundlerów łamie kontrakt.** Zmienne wypiekane przy budowaniu (np. `EXPO_PUBLIC_*`, `import.meta.env` w Vite, `process.env.*` zastępowane przez bundler) dają obraz przypięty do jednego adresu, więc nie da się go użyć z portami przydzielanymi per run. Takie repo wymaga przejścia na runtime config, zanim jego usługa wejdzie do manifestu.
    - Z tego samego powodu `build.args` nie mogą zawierać placeholderów `${services.*}` ani `${secret.*}` (błąd walidacji).
-2. **Healthcheck.** Obraz ma `HEALTHCHECK` albo manifest podaje `health`. Brak obu wykrywa narzędzie po rozwiązaniu obrazu (`images`/`up`, przez `docker image inspect`) i zgłasza `error: no-healthcheck`, chyba że manifest jawnie deklaruje `health: { none: true }`. Wtedy gotowość = kontener działa, a narzędzie wypisuje ostrzeżenie. Wymagania wobec narzędzi w obrazie dla sondy HTTP: zob. Q11.
+2. **Healthcheck.** Obraz ma `HEALTHCHECK` albo manifest podaje `health` (`http` wymaga `curl` albo `wget` w obrazie, Q11). Brak obu wykrywa narzędzie po rozwiązaniu obrazu (`images`/`up`, przez `docker image inspect`) i zgłasza `error: no-healthcheck`, chyba że manifest jawnie deklaruje `health: { none: true }`. Wtedy gotowość = kontener działa, a narzędzie wypisuje ostrzeżenie. **Sonda `health: { http }`** wykonuje się w kontenerze przez `curl -fsS` albo `wget -q -O-` (w tej kolejności), więc obraz musi mieć jedno z nich. Obrazy alpine i nginx mają `wget` z busyboxa. Obraz bez obu narzędzi (np. distroless) używa `health: { command: [...] }` (Q11).
 3. **Migracje jako polecenie w obrazie.** `migrate.command` uruchamia się jako jednorazowa usługa z tego samego obrazu, przed startem usługi.
 4. **Hooki QA jako polecenia w obrazie**, wykonywane przez `docker compose exec -T` w działającym kontenerze usługi: `seed`, `login.otp`, `login.session`, `login.rateLimitReset`, przełączniki `command`, `dataAccess`. Hook działa w cgroup usługi, więc jego pamięć liczy się do `mem_limit` tej usługi. `memory` usługi z hookami musi mieć zapas na seed.
 5. **Hooki QA nieaktywne poza trybem QA.** Narzędzie ustawia w każdym kontenerze aplikacyjnym `E2E_QA_MODE=1`. Polecenia QA muszą odmawiać działania, gdy tej zmiennej nie ma, z **zarezerwowanym kodem wyjścia 78** (`EX_CONFIG`) i komunikatem na stderr. Dzięki temu narzędzie odróżnia „hook nieaktywny” (78) od „brak polecenia w obrazie” (126/127 zwrócone przez `exec`) i od zwykłego błędu hooka (każdy inny kod). Obraz produkcyjny może je więc zawierać bez ryzyka, a najlepiej w ogóle ich nie zawiera (osobny target `qa` w Dockerfile). To warunek bezpieczeństwa: polecenia tworzące konta, czytające OTP czy wydające sesje nie mogą być aktywne na produkcji.
@@ -375,7 +375,7 @@ Reguły manifestu:
 
 | Tryb (`--image-source`, domyślnie `auto`) | Zachowanie |
 |---|---|
-| `auto` | Gdy usługa ma `image` i repo pochodzi z cache albo jest czystą ścieżką lokalną: sprawdzenie rejestru (`docker buildx imagetools inspect`). Obraz istnieje → `pull`. Brak → `build` (gdy zdefiniowany), inaczej `blocked: image-missing`. Odpowiedź „denied”/401: zob. Q12. Niezgodna platforma: zob. Q13 |
+| `auto` | Gdy usługa ma `image` i repo pochodzi z cache albo jest czystą ścieżką lokalną: sprawdzenie rejestru (`docker buildx imagetools inspect`). Obraz istnieje → `pull`. Brak → `build` (gdy zdefiniowany), inaczej `blocked: image-missing`. Odpowiedź „denied”/401: gdy w konfiguracji Dockera operatora jest zapisane logowanie do tego rejestru (`credHelpers`/`auths`), traktowana jak brak obrazu (→ `build`); bez logowania `blocked: registry-auth` (Q12). Obraz bez wariantu dla platformy hosta (np. tylko `linux/amd64` na hoście `arm64`) → `build` natywny (Q13) |
 | `registry` | Tylko rejestr; brak obrazu to `blocked: image-missing` |
 | `build` | Tylko budowanie; usługa bez `build` to `blocked` |
 
@@ -385,7 +385,8 @@ Reguły manifestu:
 - Budowanie idzie po kolei (jedno naraz), żeby nie przekroczyć pamięci VM. Równoległość można zwiększyć flagą `--build-parallel N`.
 - **Kontekst budowania ze ścieżki lokalnej** jest tylko czytany. Obowiązuje `.dockerignore` repo. Narzędzie ostrzega, gdy `.dockerignore` nie wyklucza `.env*`, bo lokalne pliki operatora mogłyby trafić do obrazu.
 - Uwierzytelnienie do rejestru pochodzi z `docker login` operatora; narzędzie go nie przechowuje.
-- `env.json` zapisuje per usługa `image: { source: registry | build, ref, digest?, imageId }`. `digest` (repo digest) istnieje tylko dla obrazu z rejestru. `imageId` (ID konfiguracji obrazu) istnieje zawsze i identyfikuje także obraz zbudowany lokalnie.
+- **Platforma.** Kontrola rejestru czyta listę platform obrazu (manifest list). Gdy nie ma wariantu dla platformy hosta, tryb `auto` buduje natywnie. Tryb `registry` daje wtedy `blocked: platform-mismatch`. Przy runnerach CI `amd64` i hostach `arm64` (typowe laptopy deweloperskie) to będzie norma, a nie wyjątek, dopóki CI nie publikuje obrazów wieloplatformowych.
+- `env.json` zapisuje per usługa `image: { source: registry | build, reason?, ref, digest?, imageId, platform }`. `reason` wyjaśnia, dlaczego wybrano `build` w trybie `auto`: `image-missing`, `registry-denied-with-login`, `platform-mismatch`, `dirty-path` albo `forced`. `digest` (repo digest) istnieje tylko dla obrazu z rejestru. `imageId` (ID konfiguracji obrazu) istnieje zawsze i identyfikuje także obraz zbudowany lokalnie.
 
 ### Słownik stanów seeda (zalecany, v1)
 
@@ -589,9 +590,9 @@ Bez `runId` polecenia działają na jedynym działającym runie. Jeśli żaden n
 | `.dockerignore` nie wyklucza `.env*` w ścieżce lokalnej | Ostrzeżenie przed budowaniem |
 | `build.args` zawiera `${services.*}` albo `${secret.*}` | Błąd walidacji (adres albo sekret wypieczony w obrazie) |
 | **Obraz bez healthchecku** i bez `health` w manifeście | `error: no-healthcheck` po rozwiązaniu obrazu (`images`/`up`), z podpowiedzią `health` albo `health: { none: true }` |
-| Sonda `health: { http }` w obrazie bez `curl`/`wget` | Zależy od Q11 |
-| Rejestr odpowiada „denied”/401 w trybie `auto` | Zależy od Q12 |
-| Obraz w rejestrze w innej platformie niż host | Zależy od Q13 |
+| Sonda `health: { http }` w obrazie bez `curl`/`wget` | `error: no-http-probe-tool` po rozwiązaniu obrazu (sprawdzenie przez `docker run --rm --entrypoint` z `which`), z podpowiedzią `health: { command: [...] }` |
+| Rejestr odpowiada „denied”/401 w trybie `auto` | Operator ma zapisane logowanie do rejestru → `build` z `reason: registry-denied-with-login` w `env.json`. Brak logowania → `blocked: registry-auth` z podpowiedzią `docker login <rejestr>` |
+| Obraz w rejestrze bez wariantu dla platformy hosta | `auto`: `build` natywny z `reason: platform-mismatch`; `registry`: `blocked: platform-mismatch` z listą dostępnych platform |
 | `health: { none: true }` | Gotowość = kontener działa; ostrzeżenie w wyjściu i w `env.json` |
 | Migracja kończy się błędem | `up --wait` przerwane; `error` z nazwą `<usługa>-migrate` i ogonem logu; sprzątnięcie (chyba że `--keep-on-failure`) |
 | **Hook QA nieaktywny w obrazie** (kod 78) albo nieobecny (kod 126/127 z `exec`) | `error: qa-hook-inactive` albo `qa-hook-missing` z nazwą hooka i usługi; podpowiedź: obraz z targetem `qa` albo sprawdzenie `E2E_QA_MODE` |
@@ -619,6 +620,8 @@ Bez `runId` polecenia działają na jedynym działającym runie. Jeśli żaden n
 - **Kontrakt obrazu zdatnego do QA to nowy, realny koszt po stronie konsumenta.** Repo z build-time env (adresy wypiekane przez bundler) albo bez healthchecku nie wejdzie do manifestu bez zmian w swoim Dockerfile i kodzie startowym. To świadoma cena container-first. Dokumentacja konsumenta musi podać wzorzec runtime config i targetu `qa`.
 - **Bezpieczeństwo hooków QA w obrazach.** Polecenia tworzące konta, czytające OTP i wydające sesje trafiają do obrazów, a te mogą trafić na produkcję. Mitygacja kontraktowa: hooki odmawiają działania bez `E2E_QA_MODE=1`, a zalecany jest osobny target `qa` w Dockerfile. Narzędzie nie weryfikuje tego w obrazie. Odpowiedzialność leży po stronie konsumenta i jego review; ryzyko wymaga jawnej pozycji w dokumentacji konsumenta.
 - **Czas pierwszego startu.** Budowanie obrazów z repo jest wolniejsze niż start procesu na hoście. Mitygacje: obrazy z rejestru (CI buduje per SHA), cache budowania Dockera, `--cache-from`. Skrócenie pętli dla zmian w ścieżce lokalnej (live update) jest poza v1.
+- **Niezgodność platform zamieni rejestr w budowanie** (Q13). Przy runnerach CI `amd64` i hostach `arm64` tryb `auto` będzie w praktyce budował wszystkie obrazy aplikacyjne lokalnie, więc pierwszy run potrwa tyle, ile pełne budowanie każdej usługi. Kolejne runy przyspieszy cache budowania. Pełną korzyść z obrazów CI da dopiero publikowanie obrazów wieloplatformowych (`linux/amd64,linux/arm64`) po stronie konsumenta. To zalecenie trafia do dokumentacji kontraktu obrazu.
+- **Interpretacja 401 przy zapisanym logowaniu** (Q12) może zamaskować wygasłe albo zbyt wąskie uprawnienia: run zbuduje obraz lokalnie zamiast użyć obrazu z CI. Mitygacja: `reason: registry-denied-with-login` w `env.json` i ostrzeżenie w wyjściu `up`/`images`.
 - **Kontekst budowania ze ścieżki lokalnej** może zawierać pliki operatora (np. `.env*`). Chroni przed tym `.dockerignore` konsumenta. Narzędzie ostrzega, ale nie filtruje kontekstu samo.
 - **Publiczne kontrakty, które trudno cofnąć:** `manifest.v1` (w tym `image`/`build`, `files.mountPath`, exec form poleceń), `run.v1`, słownik stanów v1, kontrakt polecenia seeda i hooka sesji, kontrakt obrazu zdatnego do QA (`E2E_QA_MODE`, `/e2e-qa`), `env.v1`. Zmiany łamiące wymagają podbicia wersji schematu. Wydanie pakietu, które wprowadza schemat v2, czyta też v1 przez co najmniej jedno kolejne wydanie minor pakietu i wypisuje ostrzeżenie migracyjne.
 - **Słownik zalecany zamiast zamkniętego.** Spec #2 (generator) może polegać tylko na stanach standardowych. Stany własne będą dla niego czarnymi skrzynkami z opisem.
@@ -684,8 +687,11 @@ Testy jednostkowe: vitest. Testy integracyjne z Dockerem są oznaczone i pomijan
 
 ### Faza 3: obrazy
 
-7. Rozwiązanie szablonu tagu (`${repo.*}`), sprawdzenie rejestru z limitem czasu i ponowieniami, `pull`, digest, tryby `auto`/`registry`/`build` i nadpisanie per usługa, reguła `dirty` → `build`. Test integracyjny z lokalnym rejestrem: obraz istnieje → `source: registry`; brak → `source: build`; `registry` bez obrazu → `blocked: image-missing`; ścieżka `dirty` → `build`.
-8. Budowanie obrazów przez `docker buildx build` z cache budowania Dockera i `--cache-from`, sekwencyjnie (domyślnie), z limitem czasu, ostrzeżeniem o `.dockerignore` i lokalnym tagiem `e2eqa/…:<runId>`; kontrola `HEALTHCHECK` (`docker image inspect`), `digest`/`imageId`; polecenie `e2e-qa images` pod blokadą kolejki. Test: obraz bez healthchecku i bez `health` daje `error: no-healthcheck`; drugi build tego samego kontekstu korzysta z cache (czas i log BuildKit `CACHED`); błąd w Dockerfile daje `error: build-failed` z ogonem; niezacommitowana zmiana w ścieżce lokalnej jest widoczna w zbudowanym obrazie.
+7. Rozwiązanie szablonu tagu (`${repo.*}`), sprawdzenie rejestru z limitem czasu i ponowieniami, `pull`, digest, tryby `auto`/`registry`/`build` i nadpisanie per usługa, reguła `dirty` → `build`, obsługa 401/denied zależnie od zapisanego logowania (Q12), kontrola platformy z manifest listy (Q13), pole `reason`. Test integracyjny z lokalnym rejestrem:
+   - obraz istnieje → `source: registry`; brak → `source: build`, `reason: image-missing`; `registry` bez obrazu → `blocked: image-missing`; ścieżka `dirty` → `build`, `reason: dirty-path`;
+   - rejestr z uwierzytelnianiem: 401 przy zapisanym logowaniu → `build`, `reason: registry-denied-with-login`, ostrzeżenie; bez logowania → `blocked: registry-auth`;
+   - obraz tylko w platformie innej niż host → `build`, `reason: platform-mismatch`; w trybie `registry` → `blocked: platform-mismatch`.
+8. Budowanie obrazów przez `docker buildx build` z cache budowania Dockera i `--cache-from`, sekwencyjnie (domyślnie), z limitem czasu, ostrzeżeniem o `.dockerignore` i lokalnym tagiem `e2eqa/…:<runId>`; kontrola `HEALTHCHECK` (`docker image inspect`), `digest`/`imageId`; polecenie `e2e-qa images` pod blokadą kolejki. Kontrola narzędzia sondy HTTP (`curl`/`wget`) dla `health: { http }` (Q11). Test: obraz bez healthchecku i bez `health` daje `error: no-healthcheck`; obraz distroless z `health: { http }` daje `error: no-http-probe-tool`, a z `health: { command }` przechodzi; obraz alpine z `wget` przechodzi; drugi build tego samego kontekstu korzysta z cache (czas i log BuildKit `CACHED`); błąd w Dockerfile daje `error: build-failed` z ogonem; niezacommitowana zmiana w ścieżce lokalnej jest widoczna w zbudowanym obrazie.
 
 ### Faza 4: start stosu
 
